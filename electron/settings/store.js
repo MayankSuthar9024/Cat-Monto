@@ -1,13 +1,22 @@
 const fs = require('fs');
 const path = require('path');
-const { app } = require('electron');
+const { app, safeStorage } = require('electron');
 
 const DEFAULT_SETTINGS = {
-  monitoringEnabled: false, // Default off until user activates
+  monitoringEnabled: true,
+  aiProvider: 'gemini', // 'gemini' | 'ollama'
+  geminiApiKey: '',
+  geminiApiKeyEncrypted: '',
+  geminiModel: 'gemini-flash-lite-latest',
   ollamaUrl: 'http://127.0.0.1:11434',
   model: 'qwen2.5-vl:latest',
-  checkIntervalSeconds: 4, // Intelligently checks change delta
-  windowBounds: { x: null, y: null, width: 340, height: 380 },
+  checkIntervalSeconds: 3,
+  windowBounds: { x: null, y: null, width: 340, height: 420 },
+  targetSourceId: 'entire-screen',
+  targetSourceName: 'Entire Screen',
+  rememberSecurely: true,
+  privacyShield: true,
+  completedOnboarding: false,
   excludedApps: [
     'bitwarden',
     '1password',
@@ -21,23 +30,76 @@ const DEFAULT_SETTINGS = {
     'private',
     'incognito',
   ],
-  simulationMode: false, // Useful when testing without active Ollama
+  simulationMode: false,
 };
 
 class SettingsStore {
+  getSettingsFilePath() {
+    if (!app) return path.join(process.cwd(), 'catmonto-settings.json');
+    try {
+      const preferred = path.join(app.getPath('appData'), 'Catmonto', 'catmonto-settings.json');
+      if (fs.existsSync(preferred)) return preferred;
+    } catch (_) {}
+    return path.join(app.getPath('userData'), 'catmonto-settings.json');
+  }
+
   constructor() {
-    this.filePath = path.join(
-      app ? app.getPath('userData') : process.cwd(),
-      'catmonto-settings.json'
-    );
+    this.filePath = this.getSettingsFilePath();
     this.settings = this.load();
+  }
+
+  encryptValue(val) {
+    if (!val) return '';
+    try {
+      if (safeStorage && safeStorage.isEncryptionAvailable()) {
+        const buffer = safeStorage.encryptString(val);
+        return buffer.toString('base64');
+      }
+    } catch (e) {
+      console.warn('[SettingsStore] safeStorage encryption failed:', e.message);
+    }
+    return val;
+  }
+
+  decryptValue(encryptedVal) {
+    if (!encryptedVal) return '';
+    try {
+      if (safeStorage && safeStorage.isEncryptionAvailable()) {
+        const buffer = Buffer.from(encryptedVal, 'base64');
+        return safeStorage.decryptString(buffer);
+      }
+    } catch (e) {
+      console.warn('[SettingsStore] safeStorage decryption failed:', e.message);
+    }
+    return encryptedVal;
   }
 
   load() {
     try {
       if (fs.existsSync(this.filePath)) {
         const raw = fs.readFileSync(this.filePath, 'utf-8');
-        return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+        const parsed = JSON.parse(raw);
+        const merged = { ...DEFAULT_SETTINGS, ...parsed };
+
+        // If encrypted key exists, decrypt it if safeStorage is ready
+        if (merged.geminiApiKeyEncrypted) {
+          if (safeStorage && safeStorage.isEncryptionAvailable()) {
+            const dec = this.decryptValue(merged.geminiApiKeyEncrypted);
+            if (dec) merged.geminiApiKey = dec;
+          }
+        }
+
+        // Automatically migrate deprecated or rate-limited model names to high-availability gemini-3.5-flash
+        if (
+          merged.geminiModel === 'gemini-2.0-flash' ||
+          merged.geminiModel === 'gemini-2.5-flash' ||
+          merged.geminiModel === 'gemini-3.6-flash' ||
+          !merged.geminiModel
+        ) {
+          merged.geminiModel = 'gemini-3.5-flash';
+        }
+
+        return merged;
       }
     } catch (err) {
       console.warn('[SettingsStore] Failed to read settings, using defaults:', err.message);
@@ -45,9 +107,27 @@ class SettingsStore {
     return { ...DEFAULT_SETTINGS };
   }
 
+  reload() {
+    this.filePath = this.getSettingsFilePath();
+    this.settings = this.load();
+    return this.settings;
+  }
+
   save() {
     try {
-      fs.writeFileSync(this.filePath, JSON.stringify(this.settings, null, 2), 'utf-8');
+      const toSave = { ...this.settings };
+      // Encrypt sensitive key if requested
+      if (toSave.rememberSecurely && toSave.geminiApiKey) {
+        const enc = this.encryptValue(toSave.geminiApiKey);
+        if (enc && enc !== toSave.geminiApiKey) {
+          toSave.geminiApiKeyEncrypted = enc;
+          toSave.geminiApiKey = ''; // Do not store plaintext on disk when encrypted
+        }
+      } else if (!toSave.rememberSecurely) {
+        toSave.geminiApiKeyEncrypted = '';
+      }
+
+      fs.writeFileSync(this.filePath, JSON.stringify(toSave, null, 2), 'utf-8');
     } catch (err) {
       console.error('[SettingsStore] Failed to save settings:', err.message);
     }

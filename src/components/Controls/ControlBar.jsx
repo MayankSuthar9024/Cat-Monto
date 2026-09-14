@@ -9,7 +9,12 @@ export default function ControlBar({
   onToggleAsk,
   onOpenSettings,
   isOllamaOnline,
+  aiProvider = 'gemini',
 }) {
+  const isGemini = aiProvider === 'gemini';
+  const statusTooltip = isGemini
+    ? (isOllamaOnline ? 'Google Gemini API connected & ready' : 'Gemini API key not configured (Click Settings to configure)')
+    : (isOllamaOnline ? 'Local Ollama Vision Model connected' : 'Ollama not detected (Check Ollama in Settings)');
   return (
     <div className="control-bar no-drag">
       {/* Monitoring toggle */}
@@ -47,18 +52,14 @@ export default function ControlBar({
         </svg>
       </button>
 
-      {/* Status dot for Ollama */}
+      {/* Status dot for active AI provider */}
       <div
         className="status-dot"
         style={{
           backgroundColor: isOllamaOnline ? 'var(--success)' : 'var(--warning)',
           cursor: 'help',
         }}
-        title={
-          isOllamaOnline
-            ? 'Local Ollama Vision Model connected'
-            : 'Ollama not detected (Check Ollama status in Settings)'
-        }
+        title={statusTooltip}
       />
 
       {/* Settings */}

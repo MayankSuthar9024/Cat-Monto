@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent !important;
+  font-family: var(--font-family);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Allow dragging by designated header/cat area */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Custom scrollbars if needed */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+}
+
+/* Floating speech bubble bounce animation */
+@keyframes bubblePop {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.92);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-bubble {
+  animation: bubblePop 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Cat breathing animation */
+@keyframes catBreathe {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(-3px) scale(1.015);
+  }
+}
+
+.animate-breathe {
+  animation: catBreathe 3.6s ease-in-out infinite;
+}
+
+/* Thinking float animation */
+@keyframes catThink {
+  0%, 100% {
+    transform: rotate(0deg) translateY(0px);
+  }
+  25% {
+    transform: rotate(-2deg) translateY(-4px);
+  }
+  75% {
+    transform: rotate(2deg) translateY(-2px);
+  }
+}
+
+.animate-thinking {
+  animation: catThink 2.4s ease-in-out infinite;
+}
+
+/* Attention perk */
+@keyframes catPerk {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.06) translateY(-6px);
+  }
+  100% {
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-perk {
+  animation: catPerk 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}

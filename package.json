@@ -1,0 +1,62 @@
+{
+  "name": "catmonto",
+  "version": "1.0.0",
+  "description": "Catmonto — Cute, intelligent, privacy-first Windows desktop AI companion powered by local Ollama vision models",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "start:electron": "electron .",
+    "dist:win": "vite build && electron-builder --win"
+  },
+  "keywords": [
+    "ai",
+    "companion",
+    "desktop",
+    "ollama",
+    "vision",
+    "cat",
+    "electron",
+    "react"
+  ],
+  "author": "Mayank Suthar",
+  "license": "MIT",
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8",
+    "vite": "^6.1.0",
+    "wait-on": "^8.0.2"
+  },
+  "build": {
+    "appId": "com.catmonto.app",
+    "productName": "Catmonto",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "Catmonto-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

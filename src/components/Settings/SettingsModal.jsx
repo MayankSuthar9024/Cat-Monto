@@ -19,6 +19,12 @@ export default function SettingsModal({
     (settings.excludedApps || []).join(', ')
   );
   const [simulationMode, setSimulationMode] = useState(settings.simulationMode || false);
+  const [typingPauseDelaySeconds, setTypingPauseDelaySeconds] = useState(
+    settings.typingPauseDelaySeconds !== undefined ? settings.typingPauseDelaySeconds : 4
+  );
+  const [suggestionCooldownSeconds, setSuggestionCooldownSeconds] = useState(
+    settings.suggestionCooldownSeconds !== undefined ? settings.suggestionCooldownSeconds : 15
+  );
   const [checking, setChecking] = useState(false);
 
   const handleSave = () => {
@@ -32,6 +38,8 @@ export default function SettingsModal({
       model,
       excludedApps: parsedExclusions,
       simulationMode,
+      typingPauseDelaySeconds: Number(typingPauseDelaySeconds) || 4,
+      suggestionCooldownSeconds: Number(suggestionCooldownSeconds) || 15,
     });
     onClose();
   };
@@ -138,6 +146,38 @@ export default function SettingsModal({
           />
           <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
             Monitoring pauses when these match foreground window titles.
+          </div>
+        </div>
+
+        {/* Observation Timing Section */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+          <div>
+            <label className="form-label" style={{ fontSize: 11 }}>Typing Pause Delay</label>
+            <select
+              value={typingPauseDelaySeconds}
+              onChange={(e) => setTypingPauseDelaySeconds(Number(e.target.value))}
+              className="form-input"
+              style={{ fontSize: 11, padding: '4px 6px' }}
+            >
+              <option value={2}>2s (Fast)</option>
+              <option value={4}>4s (Balanced)</option>
+              <option value={6}>6s (Relaxed)</option>
+              <option value={8}>8s (Patient)</option>
+            </select>
+          </div>
+          <div>
+            <label className="form-label" style={{ fontSize: 11 }}>Cooldown</label>
+            <select
+              value={suggestionCooldownSeconds}
+              onChange={(e) => setSuggestionCooldownSeconds(Number(e.target.value))}
+              className="form-input"
+              style={{ fontSize: 11, padding: '4px 6px' }}
+            >
+              <option value={10}>10s</option>
+              <option value={15}>15s (Default)</option>
+              <option value={30}>30s (Quiet)</option>
+              <option value={60}>60s</option>
+            </select>
           </div>
         </div>
 

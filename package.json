@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "start": "concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
-    "start:electron": "electron .",
-    "dist:win": "vite build && electron-builder --win"
+    "start": "npx concurrently -k \"npx vite\" \"npx wait-on tcp:5173 && npx electron .\"",
+    "start:electron": "npx electron .",
+    "dist:win": "npx vite build && npx electron-builder --win"
   },
   "keywords": [
     "ai",
@@ -27,11 +27,11 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^4.7.0",
     "concurrently": "^9.1.2",
     "electron": "^34.2.0",
     "electron-builder": "^25.1.8",
-    "vite": "^6.1.0",
+    "vite": "^6.4.3",
     "wait-on": "^8.0.2"
   },
   "build": {

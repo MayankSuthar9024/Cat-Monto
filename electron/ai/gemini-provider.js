@@ -1,49 +1,62 @@
 const { AIProvider } = require('./provider');
+const { CAT_CONFIG } = require('../config/cat-config');
+const { validateGeminiResponse, formatErrorNotification } = require('./response-validator');
+const { GeminiLiveClient } = require('./gemini-live-client');
 
-const GEMINI_SYSTEM_PROMPT = `You are Catmonto, a fast AI code error detector and desktop companion.
-You inspect the user's active screen to catch REAL programming and markup errors.
+const REALTIME_ERROR_DETECTION_INSTRUCTION = `You are a high-precision real-time coding error detector watching a developer's code editor.
+Your goal: detect REAL, DEFINITE syntax errors visible on screen and report them in structured JSON.
 
-═══════════════════════════════════════════════════
-RULE 1: ERROR DETECTION — STRICT BUT COMPREHENSIVE
-═══════════════════════════════════════════════════
-Default response: NO_SUGGESTION
+CRITICAL RULES TO PREVENT FALSE ALERTS & HALLUCINATIONS:
+1. NEVER CLAIM A VARIABLE OR IDENTIFIER IS UNDECLARED OR UNINITIALIZED WITHOUT CHECKING ALL PRECEDING LINES:
+   - Always read the entire visible function/block from the top before claiming an identifier is undeclared!
+   - Example: if line 5 has "int x;", 'x' IS ALREADY DECLARED. Never claim 'x' is undeclared on subsequent lines!
+2. USE EXACT GUTTER LINE NUMBERS:
+   - Look at the line numbers printed on the left margin gutter in the editor (VS Code / IDE).
+   - Use the EXACT line number shown in the gutter where the error actually is. Do not guess line numbers.
+3. DETECT COMMON SYNTAX ERRORS & IDE RED SQUIGGLY UNDERLINES:
+   - C / C++:
+     * Invalid stream operators: 'cin' uses extraction operator '>>' (e.g. 'cin >> x;'). 'cin<<<x;' or 'cin<<x;' is a SYNTAX ERROR.
+     * 'cout' uses insertion operator '<<' (e.g. 'cout << "hello";'). 'cout<"hello";' or 'cout>>' is a SYNTAX ERROR.
+     * Empty control statements: 'if()' or 'while()' with empty parentheses is a SYNTAX ERROR.
+     * Missing semicolons ';' at the end of statements.
+     * Unmatched or unclosed braces '{' or '}'.
+   - Python:
+     * Missing colons ':', invalid indentation, unmatched parentheses.
+   - HTML / XML:
+     * Unclosed tags (<div> without </div>), misspelled tags (<sectio>, <divv>).
+   - JavaScript / TypeScript:
+     * Syntax errors, unbalanced brackets, unexpected tokens.
+   - Terminal / Compiler Output:
+     * If an active terminal or compiler output is visible at the bottom showing an error, pinpoint the error mentioned by the compiler.
+4. DO NOT REPORT INCOMPLETE TOKENS WHERE USER IS CURRENTLY TYPING:
+   - If the cursor is at the end of a line actively typing, ignore that single unfinished token. Focus on completed statements with errors.
+5. IF CODE IS VALID OR CLEAN:
+   - If there are no definite syntax errors, return {"error": false}. Never invent or imagine errors that do not exist!
+6. BREVITY:
+   - Keep 'title', 'message', and 'suggestion' ultra-concise (1 sentence each). Be fast.
 
-WORK-IN-PROGRESS PROTECTION (important!):
-- If code looks actively being typed (cursor mid-line, partial keyword), output: NO_SUGGESTION
-- A partial/unfinished line is NOT an error. Only flag completed, settled code.
+Return ONLY valid JSON matching the schema. No markdown outside JSON.`;
 
-DETECT THESE CONFIRMED ERRORS:
-1. HTML / Web Markup errors (high priority):
-   - Unclosed tags that appear complete but lack closing: <div> with no </div>
-   - Mismatched tags: </section> closing a <div>
-   - Missing required attributes: <img> without src
-   - Misspelled HTML tags that editor highlights in red (e.g. <divv>, <spna>)
-   - Visible red/pink highlighted tags in the editor
-2. IDE Syntax Errors: Red squiggly underlines or Problems panel errors on completed code
-3. Terminal / Compiler Crashes: Error output, stack traces, build failures
-4. Browser Console: Uncaught errors or red console messages
-5. JS/TS/Python/etc: Missing brackets, syntax errors visible in editor
+const STRUCTURED_JSON_PROMPT = `Inspect the active code editor on screen for real syntax errors or red squiggly underlines.
 
-═══════════════════════════════════════════════════
-RULE 2: FORMAT — ZERO EMOJIS, ULTRA CONCISE
-═══════════════════════════════════════════════════
-[Line X] Error: [what's wrong]
-Fix: [exact fix]
+If a definite syntax error exists on any line:
+{
+  "error": true,
+  "severity": "high" | "medium",
+  "language": string,
+  "line": number (exact editor gutter line number),
+  "title": string (e.g. "Invalid Stream Operator", "Empty Condition", "Missing Semicolon"),
+  "message": string (1 concise sentence explaining the exact mistake),
+  "suggestion": string (the exact fix, e.g. "Change 'cin<<<x;' to 'cin >> x;'")
+}
 
-OR for terminal errors:
-[Terminal] Error: [error text]
-Fix: [fix command or code]
+If all code is valid, clean, or has no syntax errors:
+{
+  "error": false
+}
 
-Max 3 lines total. No intro, no explanations, just the error and fix.
+Keep descriptions 1 brief sentence. Output ONLY valid JSON.`;
 
-═══════════════════════════════════════════════════
-RULE 3: LANGUAGE
-═══════════════════════════════════════════════════
-Match user's language (English/Hindi/Hinglish). No emojis ever.
-Hindi example: [Line 5] HTML Error: <div> tag close nahi hua hai. Fix: </div> add karo line 5 ke baad.
-English example: [Line 5] HTML Error: Unclosed <div> tag. Fix: Add </div> after line 5.
-
-If no confirmed error or code is in progress: NO_SUGGESTION`;
 
 const GEMINI_MANUAL_ASK_PROMPT = `You are Catmonto, a professional AI programming assistant.
 The user is asking a direct question about their screen.
@@ -62,18 +75,22 @@ class GeminiProvider extends AIProvider {
   constructor(options = {}) {
     super('gemini');
     this.apiKey = options.apiKey || '';
-    const deprecated = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'];
-    const initial = options.model || 'gemini-3.5-flash';
+    const deprecated = ['gemini-2.0-flash', 'gemini-2.5-flash'];
+    const initial = options.model || CAT_CONFIG.PRIMARY_GEMINI_MODEL;
     this.model = deprecated.includes(initial) ? 'gemini-3.5-flash' : initial;
+    this.liveClient = new GeminiLiveClient({ apiKey: this.apiKey });
   }
 
   setApiKey(key) {
     this.apiKey = (key || '').trim();
+    if (this.liveClient) {
+      this.liveClient.setApiKey(this.apiKey);
+    }
   }
 
   setModel(model) {
-    const deprecated = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'];
-    const chosen = model || 'gemini-3.5-flash';
+    const deprecated = ['gemini-2.0-flash', 'gemini-2.5-flash'];
+    const chosen = model || CAT_CONFIG.PRIMARY_GEMINI_MODEL;
     this.model = deprecated.includes(chosen) ? 'gemini-3.5-flash' : chosen;
   }
 
@@ -115,29 +132,30 @@ class GeminiProvider extends AIProvider {
   }
 
   /**
-   * Multimodal vision analysis — optimized for speed and HTML error detection.
-   * Uses primary model only with tight token limit; falls back once on failure.
+   * Multimodal vision analysis.
+   * Fast Watch Mode: Returns validated structured JSON ({ error, severity, line, title, message, suggestion }).
+   * Deep Explanation Mode: Detailed multi-line response for manual questions.
    */
-  async analyzeScreen({ imageBase64, userPrompt, contextHint }) {
+  async analyzeScreen({ imageBase64, userPrompt, contextHint, isExhibitionMode = false }) {
     if (!this.apiKey) {
       throw new Error('Gemini API key is not configured. Please add it in settings.');
     }
 
+    const tStart = Date.now();
     const isManualAsk = Boolean(userPrompt && userPrompt.trim().length > 0);
-    const systemPrompt = isManualAsk ? GEMINI_MANUAL_ASK_PROMPT : GEMINI_SYSTEM_PROMPT;
+    const systemPrompt = isManualAsk ? GEMINI_MANUAL_ASK_PROMPT : REALTIME_ERROR_DETECTION_INSTRUCTION;
 
     // Remove data URL scheme prefix if present
     const cleanBase64 = (imageBase64 || '').replace(/^data:image\/[a-z]+;base64,/, '');
 
-    const promptText = isManualAsk
-      ? `User Question: "${userPrompt}"\nContext: ${contextHint || 'Desktop Workspace'}\nAnswer directly with exact line numbers and solutions. No emojis.`
-      : `Screen: ${contextHint || 'Desktop'}.
-Detect any CONFIRMED completed errors visible:
-- HTML: unclosed tags, misspelled tags, mismatched tags, red-highlighted markup
-- IDE: red squiggles, error badges on finished code lines
-- Terminal: compiler errors, tracebacks, build failures
-- If code is still being typed/incomplete: NO_SUGGESTION
-- If no error: NO_SUGGESTION`;
+    let promptText;
+    if (isManualAsk) {
+      promptText = `User Question: "${userPrompt}"\nContext: ${contextHint || 'Desktop Workspace'}\nAnswer directly with exact line numbers and solutions. No emojis.`;
+    } else {
+      promptText = contextHint && contextHint !== 'Desktop Workspace'
+        ? `Context: ${contextHint}\n\n${STRUCTURED_JSON_PROMPT}`
+        : STRUCTURED_JSON_PROMPT;
+    }
 
     const userParts = [{ text: promptText }];
     if (cleanBase64 && cleanBase64.length > 50) {
@@ -149,75 +167,149 @@ Detect any CONFIRMED completed errors visible:
       });
     }
 
-    // Use only primary model + one fast fallback to avoid long waits from 3-model chain
-    const primaryModel = this.model || 'gemini-flash-lite-latest';
-    const fallbackModel = primaryModel === 'gemini-flash-lite-latest' ? 'gemini-3.5-flash' : 'gemini-flash-lite-latest';
+    // Prioritized model chain: Fast-lite first, then fallback
+    const primaryModel = this.model || CAT_CONFIG.PRIMARY_GEMINI_MODEL;
+    const fallbackModel = primaryModel === CAT_CONFIG.PRIMARY_GEMINI_MODEL
+      ? CAT_CONFIG.FALLBACK_GEMINI_MODEL
+      : CAT_CONFIG.PRIMARY_GEMINI_MODEL;
     const modelsToTry = [...new Set([primaryModel, fallbackModel])];
+
+    const generationConfig = {
+      temperature: isManualAsk ? 0.2 : 0.0,
+      maxOutputTokens: isManualAsk ? 512 : 180,
+    };
+
+    if (!isManualAsk) {
+      generationConfig.responseMimeType = 'application/json';
+    }
 
     let lastError = null;
 
     for (const modelToUse of modelsToTry) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent?key=${encodeURIComponent(this.apiKey.trim())}`;
-
-      const generationConfig = {
-        temperature: isManualAsk ? 0.2 : 0.0,
-        // 256 tokens is more than enough for a 3-line error report — much faster than 1024
-        maxOutputTokens: isManualAsk ? 512 : 256,
-      };
-
-      // Only models supporting thinking accept thinkingConfig (e.g. 3.5, 2.5-pro)
+      const modelConfig = { ...generationConfig };
+      // Disable thinking budget on models that support it for zero thinking latency
       if (modelToUse.includes('3.5') || modelToUse.includes('pro')) {
-        generationConfig.thinkingConfig = { thinkingBudget: 0 };
+        modelConfig.thinkingConfig = { thinkingBudget: 0 };
       }
 
       const payload = {
-        contents: [
-          {
-            role: 'user',
-            parts: userParts,
-          },
-        ],
-        system_instruction: {
-          parts: [{ text: systemPrompt }],
-        },
-        generationConfig,
+        contents: [{ role: 'user', parts: userParts }],
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: modelConfig,
       };
 
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:streamGenerateContent?alt=sse&key=${encodeURIComponent(this.apiKey.trim())}`;
+
       try {
+        const netStart = Date.now();
         const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-          // 12s timeout: fast enough to feel responsive, long enough for the model to respond
-          signal: AbortSignal.timeout(12000),
+          signal: AbortSignal.timeout(10000),
         });
 
         if (!response.ok) {
           const errJson = await response.json().catch(() => ({}));
           const errMsg = errJson?.error?.message || `HTTP ${response.status}`;
           if (response.status === 400 || response.status === 429 || response.status === 503 || response.status === 404) {
-            console.warn(`[GeminiProvider] Model ${modelToUse} returned ${response.status}. Trying fallback...`);
+            console.warn(`[GeminiProvider] ${modelToUse} returned ${response.status}. Trying fallback...`);
             lastError = new Error(errMsg);
             continue;
           }
           throw new Error(errMsg);
         }
 
-        const data = await response.json();
-        const rawText = (data?.candidates?.[0]?.content?.parts || [])
-          .map((p) => p.text)
-          .join(' ')
-          .trim();
+        // Parse SSE stream
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let rawText = '';
+        let firstTokenTime = null;
 
-        if (!isManualAsk && (!rawText || rawText.toUpperCase().includes('NO_SUGGESTION'))) {
-          return { suggestion: null, raw: rawText, activeModel: modelToUse };
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          if (!firstTokenTime) {
+            firstTokenTime = Date.now() - netStart;
+          }
+
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr || jsonStr === '[DONE]') continue;
+            try {
+              const chunk = JSON.parse(jsonStr);
+              const parts = chunk?.candidates?.[0]?.content?.parts || [];
+              for (const p of parts) {
+                if (p.text) rawText += p.text;
+              }
+            } catch {
+              // skip malformed chunk
+            }
+          }
+
+          // Early stream exit: in auto-watch mode, as soon as complete valid JSON is detected,
+          // stop reading immediately to save 300-600ms socket teardown latency.
+          if (!isManualAsk && rawText.includes('}')) {
+            const trimmed = rawText.trim();
+            if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+              try {
+                const candidate = JSON.parse(trimmed);
+                if (candidate && typeof candidate === 'object' && ('error' in candidate)) {
+                  try { await reader.cancel(); } catch (_) {}
+                  break;
+                }
+              } catch (_) {}
+            }
+          }
         }
 
+        const networkElapsed = Date.now() - netStart;
+        const totalElapsed = Date.now() - tStart;
+        rawText = rawText.trim();
+
+        if (isManualAsk) {
+          return {
+            suggestion: rawText,
+            raw: rawText,
+            activeModel: modelToUse,
+            perf: { networkMs: networkElapsed, totalMs: totalElapsed, firstTokenMs: firstTokenTime },
+          };
+        }
+
+        // Validate structured JSON response
+        const validated = validateGeminiResponse(rawText);
+
+        if (!validated.hasError) {
+          return {
+            hasError: false,
+            suggestion: null,
+            errorObj: null,
+            fingerprint: null,
+            raw: rawText,
+            activeModel: modelToUse,
+            perf: { networkMs: networkElapsed, totalMs: totalElapsed, firstTokenMs: firstTokenTime },
+          };
+        }
+
+        const formattedText = formatErrorNotification(validated.errorObj, isExhibitionMode);
+
         return {
-          suggestion: rawText,
+          hasError: true,
+          suggestion: formattedText,
+          errorObj: validated.errorObj,
+          fingerprint: validated.fingerprint,
           raw: rawText,
           activeModel: modelToUse,
+          perf: { networkMs: networkElapsed, totalMs: totalElapsed, firstTokenMs: firstTokenTime },
         };
+
       } catch (err) {
         lastError = err;
         if (!err.message?.includes('429') && !err.message?.includes('503') && !err.message?.includes('404')) {
@@ -231,4 +323,7 @@ Detect any CONFIRMED completed errors visible:
   }
 }
 
-module.exports = { GeminiProvider, GEMINI_SYSTEM_PROMPT };
+module.exports = {
+  GeminiProvider,
+  REALTIME_ERROR_DETECTION_INSTRUCTION,
+};

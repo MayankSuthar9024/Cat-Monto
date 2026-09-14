@@ -78,8 +78,11 @@ export default function SpeechBubble({
   text,
   onDismiss,
   autoDismissMs = 15000,
+  onHeightChange,
+  modelName,
 }) {
   const [copied, setCopied] = useState(false);
+  const cardRef = React.useRef(null);
 
   useEffect(() => {
     if (!text || autoDismissMs <= 0) return;
@@ -90,9 +93,50 @@ export default function SpeechBubble({
     return () => clearTimeout(timer);
   }, [text, autoDismissMs, onDismiss]);
 
+  // Dynamically measure bubble height so Electron window expands to fit without cutoff
+  useEffect(() => {
+    if (!cardRef.current || !onHeightChange) return;
+
+    const reportHeight = () => {
+      if (cardRef.current) {
+        const height = cardRef.current.offsetHeight;
+        if (height > 0) {
+          onHeightChange(height);
+        }
+      }
+    };
+
+    reportHeight();
+
+    let observer = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const h = Math.ceil(entry.borderBoxSize?.[0]?.blockSize || entry.contentRect.height);
+          if (h > 0) {
+            onHeightChange(h);
+          }
+        }
+      });
+      observer.observe(cardRef.current);
+    }
+
+    return () => {
+      if (observer) observer.disconnect();
+    };
+  }, [text, onHeightChange]);
+
   if (!text) return null;
 
   const { locationBadge, errorText, fixText, clean } = parseSuggestion(text);
+
+  const formattedModel = modelName
+    ? modelName
+        .replace(/^models\//, '')
+        .replace(/-latest$/, '')
+        .replace(/-/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+    : 'Gemini Flash';
 
   const handleCopyFix = async (e) => {
     e.stopPropagation();
@@ -105,11 +149,16 @@ export default function SpeechBubble({
   };
 
   return (
-    <div className="bubble-card no-drag">
+    <div ref={cardRef} className="bubble-card no-drag">
       {/* Sleek Header */}
       <div className="bubble-header">
         <div className="bubble-meta-left">
           <span className="bubble-brand">Catmonto</span>
+          {formattedModel && (
+            <span className="bubble-model-badge" title={`Active AI Model: ${formattedModel}`}>
+              {formattedModel}
+            </span>
+          )}
           {locationBadge && (
             <span className="bubble-badge-pill">
               {locationBadge}

@@ -6,7 +6,10 @@ import SetupWizardModal from './components/Wizard/SetupWizardModal';
 
 export default function App() {
   const [catState, setCatState] = useState('sleeping'); // 'sleeping' (no errors) | 'attention' | 'speaking' | 'thinking' | 'idle'
+  const [fsmState, setFsmState] = useState('WATCHING');
   const [suggestion, setSuggestion] = useState(null);
+  const [activeModel, setActiveModel] = useState('Gemini Flash');
+  const [bubbleHeight, setBubbleHeight] = useState(190);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [showAskInput, setShowAskInput] = useState(false);
   const [isAsking, setIsAsking] = useState(false);
@@ -34,36 +37,63 @@ export default function App() {
 
       // Listen for suggestions from background screen analysis (errors in code)
       const unsubscribeSuggestion = window.catmonto.onSuggestion((data) => {
+        if (data?.resolved) {
+          setSuggestion(null);
+          setCatState('attention');
+          setTimeout(() => setCatState('sleeping'), 1500);
+          return;
+        }
         if (data?.text) {
           setSuggestion(data.text);
+          if (data?.model) {
+            setActiveModel(data.model);
+          }
           setCatState('speaking');
         }
       });
 
-      // Listen for cat state changes
+      // Listen for cat animation state changes
       const unsubscribeState = window.catmonto.onStateChange((state) => {
         setCatState(state || 'sleeping');
+      });
+
+      // Listen for Cat FSM state changes
+      const unsubscribeFsm = window.catmonto.onFsmStateChange?.((state) => {
+        if (state) setFsmState(state);
       });
 
       return () => {
         unsubscribeSuggestion();
         unsubscribeState();
+        unsubscribeFsm?.();
       };
     }
   }, []);
 
+  // Dynamically adapt window size so Catmonto only occupies the exact space needed
+  useEffect(() => {
+    if (!window.catmonto?.setWindowSize) return;
+
+    if (isWizardOpen) {
+      window.catmonto.setWindowSize(780, 560, false);
+    } else if (suggestion) {
+      // Dynamic height: measured bubble height + cat wrapper (~145px) + drag bar/margins (~35px)
+      // Clamped between 330px and 480px to fit any error without clipping
+      const targetHeight = Math.min(480, Math.max(330, (bubbleHeight || 190) + 180));
+      window.catmonto.setWindowSize(330, targetHeight, false);
+    } else if (showAskInput) {
+      window.catmonto.setWindowSize(280, 220, false);
+    } else {
+      window.catmonto.setWindowSize(190, 175, false);
+    }
+  }, [isWizardOpen, suggestion, bubbleHeight, showAskInput]);
+
   const openWizard = () => {
     setIsWizardOpen(true);
-    if (window.catmonto?.setWindowSize) {
-      window.catmonto.setWindowSize(780, 560, false);
-    }
   };
 
   const closeWizard = () => {
     setIsWizardOpen(false);
-    if (window.catmonto?.setWindowSize) {
-      window.catmonto.setWindowSize(340, 420, false);
-    }
   };
 
   const handleToggleMonitoring = async () => {
@@ -82,6 +112,7 @@ export default function App() {
     } else {
       setSuggestion(null);
       setCatState('sleeping');
+      window.catmonto?.clearError?.();
     }
   };
 
@@ -102,7 +133,7 @@ export default function App() {
       // Mock browser reply
       setTimeout(() => {
         setIsAsking(false);
-        setSuggestion(`I checked your screen: no errors found! Going back to sleep 💤`);
+        setSuggestion(`I checked your screen: no errors found! Going back to sleep.`);
         setCatState('speaking');
         setTimeout(() => setCatState('sleeping'), 3500);
       }, 1000);
@@ -112,11 +143,12 @@ export default function App() {
   // Quick toggle to simulate a code error and test cat wake-up
   const handleToggleTestError = () => {
     if (catState === 'sleeping' && !suggestion) {
-      setSuggestion("⚠️ SyntaxError: Unexpected token '}' in code. Check closing brackets!");
+      setSuggestion("[Line 42] SyntaxError: Unexpected token '}'. Check closing brackets!\nFix: Remove extra '}' on line 42");
       setCatState('speaking');
     } else {
       setSuggestion(null);
       setCatState('sleeping');
+      window.catmonto?.clearError?.();
     }
   };
 
@@ -171,9 +203,12 @@ export default function App() {
       {!isWizardOpen && suggestion && (
         <SpeechBubble
           text={suggestion}
+          modelName={activeModel}
+          onHeightChange={(h) => setBubbleHeight(h)}
           onDismiss={() => {
             setSuggestion(null);
             setCatState('sleeping');
+            window.catmonto?.clearError?.();
           }}
         />
       )}
@@ -230,15 +265,41 @@ export default function App() {
                 e.stopPropagation();
                 handleToggleTestError();
               }}
-              className={`quick-status-btn ${hasActiveError ? 'error-active' : 'sleep-mode'}`}
+              className={`quick-status-btn ${
+                hasActiveError
+                  ? 'error-active'
+                  : fsmState === 'ANALYZING'
+                  ? 'analyzing-active'
+                  : fsmState === 'SUCCESS'
+                  ? 'success-active'
+                  : 'sleep-mode'
+              }`}
               title={
                 hasActiveError
                   ? 'Error active (Click to clear and let cat sleep)'
-                  : 'Test Code Error: Click to simulate an error and wake the cat up'
+                  : `Status: ${fsmState}`
               }
             >
-              <span className={`status-dot-mini ${hasActiveError ? 'error-dot pulse' : 'sleep-dot'}`} />
-              <span>{hasActiveError ? 'Error!' : 'Sleeping'}</span>
+              <span
+                className={`status-dot-mini ${
+                  hasActiveError
+                    ? 'error-dot pulse'
+                    : fsmState === 'ANALYZING'
+                    ? 'analyzing-dot pulse'
+                    : fsmState === 'SUCCESS'
+                    ? 'success-dot pulse'
+                    : 'sleep-dot'
+                }`}
+              />
+              <span>
+                {hasActiveError
+                  ? 'Error!'
+                  : fsmState === 'ANALYZING'
+                  ? 'Checking'
+                  : fsmState === 'SUCCESS'
+                  ? 'Fixed!'
+                  : 'Sleeping'}
+              </span>
             </button>
 
             <button

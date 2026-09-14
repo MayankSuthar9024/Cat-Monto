@@ -57,7 +57,7 @@ export default function CatCharacter({
         if (onCatClick) onCatClick(e);
       }}
       className={`cat-character-wrapper no-drag ${animationClass}`}
-      style={{ width: 144, height: 148, cursor: 'pointer' }}
+      style={{ width: 106, height: 110, cursor: 'pointer' }}
       title={
         isSleeping
           ? 'Cat is sleeping (Code is error-free) — Click to open Settings'

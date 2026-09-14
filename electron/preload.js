@@ -7,6 +7,13 @@ contextBridge.exposeInMainWorld('catmonto', {
   captureNow: () => ipcRenderer.invoke('screen:captureNow'),
   getScreenSources: () => ipcRenderer.invoke('screen:getSources'),
   checkPermissions: () => ipcRenderer.invoke('permissions:check'),
+  setCaptureRegion: (region) => ipcRenderer.invoke('capture:setRegion', region),
+
+  // Cat Config & FSM
+  getCatConfig: () => ipcRenderer.invoke('config:get'),
+  updateCatConfig: (newConfig) => ipcRenderer.invoke('config:update', newConfig),
+  getFsmState: () => ipcRenderer.invoke('fsm:getState'),
+  clearError: () => ipcRenderer.invoke('cat:clearError'),
 
   // AI & Ask Cat
   checkOllama: () => ipcRenderer.invoke('ollama:check'),
@@ -41,6 +48,11 @@ contextBridge.exposeInMainWorld('catmonto', {
     const handler = (event, data) => callback(data);
     ipcRenderer.on('cat:state', handler);
     return () => ipcRenderer.removeListener('cat:state', handler);
+  },
+  onFsmStateChange: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('cat:fsmState', handler);
+    return () => ipcRenderer.removeListener('cat:fsmState', handler);
   },
   onEyeTarget: (callback) => {
     const handler = (event, data) => callback(data);

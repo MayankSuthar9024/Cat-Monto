@@ -1,5 +1,6 @@
 const { desktopCapturer, screen } = require('electron');
 const { exec } = require('child_process');
+const { CAT_CONFIG } = require('../config/cat-config');
 
 /**
  * Helper to query active application windows in the interactive console session on Windows.
@@ -52,14 +53,23 @@ function getConsoleWindows() {
 
 /**
  * Screen Capturer & Intelligent Change Detector
- * Supports capturing Entire Display or Specific Application Windows.
+ * Supports capturing Entire Display, Specific Application Windows, or Cropped Code Regions.
  * Prevents redundant AI calls by computing quick thumbnail downscaled pixel differences.
  */
 class ScreenCapturer {
   constructor(options = {}) {
-    this.threshold = options.threshold || 0.006; // 0.6% difference (sensitive enough to detect code editor edits and red error highlights)
+    this.threshold = options.threshold || CAT_CONFIG.THUMBNAIL_DIFF_THRESHOLD;
     this.lastThumbnail = null;
-    this.thumbnailSize = { width: 128, height: 72 }; // 128x72 micro-grid for reliable change detection
+    this.thumbnailSize = options.thumbnailSize || CAT_CONFIG.MICRO_THUMBNAIL_SIZE;
+    this.captureRegion = options.captureRegion || CAT_CONFIG.CAPTURE_REGION;
+    this.jpegQuality = options.jpegQuality || CAT_CONFIG.JPEG_QUALITY;
+    this.maxWidth = options.maxWidth || CAT_CONFIG.CAPTURE_MAX_WIDTH;
+    this.maxHeight = options.maxHeight || CAT_CONFIG.CAPTURE_MAX_HEIGHT;
+  }
+
+  setCaptureRegion(region) {
+    this.captureRegion = region;
+    this.lastThumbnail = null; // reset cache when region changes
   }
 
   /**
@@ -120,24 +130,31 @@ class ScreenCapturer {
    * Capture active screen display or specific window using Electron desktopCapturer.
    * Returns full-res JPEG base64 and micro-thumbnail.
    */
-  async captureScreen(targetSourceId = null) {
+  async captureScreen(targetSourceId = null, isErrorActive = false) {
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.size;
 
     const isTargetSpecific = Boolean(targetSourceId && targetSourceId !== 'entire-screen');
 
     let sources = [];
+    const targetW = this.maxWidth || CAT_CONFIG.CAPTURE_MAX_WIDTH || 1280;
+    const targetH = this.maxHeight || CAT_CONFIG.CAPTURE_MAX_HEIGHT || 720;
+
     try {
+      // IMPORTANT: When capturing 'entire-screen', ONLY request type 'screen'.
+      // Requesting 'window' type on Windows 11 triggers WGC capturer errors for every
+      // uncapturable window (elevated/system windows), flooding the console and failing captures.
+      const captureTypes = isTargetSpecific ? ['window', 'screen'] : ['screen'];
       sources = await desktopCapturer.getSources({
-        types: isTargetSpecific ? ['window', 'screen'] : ['screen', 'window'],
-        thumbnailSize: { width: Math.min(width, 1280), height: Math.min(height, 720) },
+        types: captureTypes,
+        thumbnailSize: { width: Math.min(width, targetW), height: Math.min(height, targetH) },
         fetchWindowIcons: false,
       });
     } catch (err) {
-      console.warn('[ScreenCapturer] getSources failed, falling back to screen only:', err.message);
+      console.warn('[ScreenCapturer] getSources failed, retrying screen-only:', err.message);
       sources = await desktopCapturer.getSources({
         types: ['screen'],
-        thumbnailSize: { width: Math.min(width, 1280), height: Math.min(height, 720) },
+        thumbnailSize: { width: Math.min(width, targetW), height: Math.min(height, targetH) },
       });
     }
 
@@ -158,6 +175,7 @@ class ScreenCapturer {
       }
     }
 
+    const tCaptureStart = Date.now();
     let image = source.thumbnail;
     // If target window image is empty (e.g. minimized), fall back to primary screen display
     if (!image || image.isEmpty()) {
@@ -172,6 +190,26 @@ class ScreenCapturer {
       throw new Error('Screen capture image buffer is empty. Please ensure your desktop display is visible.');
     }
 
+    const captureDurationMs = Date.now() - tCaptureStart;
+    const tOptStart = Date.now();
+
+    // Crop to focused code region if configured
+    if (this.captureRegion && !image.isEmpty()) {
+      const imgSize = image.getSize();
+      const cropX = Math.max(0, Math.min(this.captureRegion.x || 0, imgSize.width - 20));
+      const cropY = Math.max(0, Math.min(this.captureRegion.y || 0, imgSize.height - 20));
+      const cropW = Math.min(this.captureRegion.width || imgSize.width, imgSize.width - cropX);
+      const cropH = Math.min(this.captureRegion.height || imgSize.height, imgSize.height - cropY);
+      if (cropW > 20 && cropH > 20) {
+        image = image.crop({
+          x: Math.round(cropX),
+          y: Math.round(cropY),
+          width: Math.round(cropW),
+          height: Math.round(cropH),
+        });
+      }
+    }
+
     // Generate downsampled thumbnail for lightning fast diffing
     const microThumb = image.resize({
       width: this.thumbnailSize.width,
@@ -180,20 +218,22 @@ class ScreenCapturer {
     });
 
     const microBitmap = microThumb.toBitmap();
-    const hasMeaningfulChange = this.detectChange(microBitmap);
+    const hasMeaningfulChange = this.detectChange(microBitmap, isErrorActive);
 
     // Save current as last
     this.lastThumbnail = microBitmap;
+    const optimizeDurationMs = Date.now() - tOptStart;
+
+    const jpegQuality = this.jpegQuality || 72;
 
     // Return result with lazy base64 encoding (only computed when AI analysis reads it)
-    // JPEG quality 78: smaller payload = faster API response, still fully readable for LLM
     return {
       hasMeaningfulChange,
       image,
       _base64: null,
       get base64() {
         if (!this._base64) {
-          this._base64 = image.toJPEG(78).toString('base64');
+          this._base64 = image.toJPEG(jpegQuality).toString('base64');
         }
         return this._base64;
       },
@@ -204,13 +244,18 @@ class ScreenCapturer {
       height: image.getSize().height,
       name: source.name,
       sourceId: source.id,
+      perf: {
+        captureMs: captureDurationMs,
+        optimizeMs: optimizeDurationMs,
+      },
     };
   }
 
   /**
    * Compare micro-bitmap buffer with previous frame.
+   * Accurately detects single-character keystrokes while filtering stationary cursor noise.
    */
-  detectChange(currentBitmap) {
+  detectChange(currentBitmap, isErrorActive = false) {
     if (!this.lastThumbnail || this.lastThumbnail.length !== currentBitmap.length) {
       return true; // First run or size changed -> trigger
     }
@@ -223,13 +268,18 @@ class ScreenCapturer {
       const dg = Math.abs(currentBitmap[i + 1] - this.lastThumbnail[i + 1]);
       const db = Math.abs(currentBitmap[i + 2] - this.lastThumbnail[i + 2]);
 
-      // If RGB channel delta exceeds noise tolerance
-      if (dr + dg + db > 40) {
+      // If RGB channel delta exceeds noise tolerance (30 captures subtle syntax highlight changes)
+      if (dr + dg + db > 30) {
         diffPixels++;
       }
     }
 
     const diffRatio = diffPixels / totalPixels;
+    // When an error is active, even a single pixel change indicates the user is attempting a fix
+    if (isErrorActive) {
+      return diffPixels >= 1;
+    }
+    // Respect configured threshold (e.g. 0.04 in unit tests or CAT_CONFIG.THUMBNAIL_DIFF_THRESHOLD)
     return diffRatio >= this.threshold;
   }
 

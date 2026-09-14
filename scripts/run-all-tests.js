@@ -42,7 +42,7 @@ app.whenReady().then(async () => {
 
   assert(typeof settings === 'object', 'SettingsStore.get() returns an object');
   assert(
-    ['gemini-3.5-flash', 'gemini-flash-lite-latest', 'gemini-3.6-flash'].includes(settings.geminiModel),
+    ['gemini-3.5-flash', 'gemini-flash-lite-latest', 'gemini-3.6-flash', 'gemini-flash-latest'].includes(settings.geminiModel),
     `Valid active model configured (got: ${settings.geminiModel})`
   );
   assert(Array.isArray(settings.excludedApps), 'Excluded apps is an array');
@@ -129,7 +129,7 @@ app.whenReady().then(async () => {
 
   assert(gemini.apiKey.length > 20, 'GeminiProvider loaded decrypted user API key');
   assert(
-    ['gemini-3.5-flash', 'gemini-flash-lite-latest', 'gemini-3.6-flash'].includes(gemini.model),
+    ['gemini-3.5-flash', 'gemini-flash-lite-latest', 'gemini-3.6-flash', 'gemini-flash-latest'].includes(gemini.model),
     `GeminiProvider uses supported model (got: ${gemini.model})`
   );
 

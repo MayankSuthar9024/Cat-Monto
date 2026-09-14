@@ -9,10 +9,12 @@ if (app) {
 
   const gotTheLock = app.requestSingleInstanceLock();
   if (!gotTheLock) {
+    console.log('[main] Another instance of Catmonto is already running. Focusing existing instance and exiting.');
     app.quit();
+    process.exit(0);
   } else {
     app.on('second-instance', () => {
-      if (mainWindow) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
         if (mainWindow.isMinimized()) mainWindow.restore();
         mainWindow.focus();
       }
@@ -20,6 +22,7 @@ if (app) {
   }
 }
 
+const { CAT_CONFIG } = require('./config/cat-config');
 const { SettingsStore } = require('./settings/store');
 const { PrivacyFilter } = require('./privacy/exclusion');
 const { ScreenCapturer } = require('./capture/capturer');
@@ -30,14 +33,39 @@ let mainWindow = null;
 let monitorInterval = null;
 let isAnalyzing = false;
 let lastAnalysisTime = 0;
-let lastSuggestionTime = 0;
+let lastErrorAlertTime = 0;
 let lastScreenChangeTime = 0;
-let hasPendingChange = false;
-let pendingCaptureResult = null;
+let screenHasChangedSinceLastAnalysis = false;
+let lastAutoRecheckTime = 0;
+let activeErrorFingerprint = null;
+let currentCatState = 'WATCHING';
 
 const settingsStore = new SettingsStore();
 const privacyFilter = new PrivacyFilter(settingsStore.get('excludedApps'));
 const screenCapturer = new ScreenCapturer();
+
+// Cat Finite State Machine (FSM) manager
+function setCatState(newState) {
+  currentCatState = newState;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  // Map FSM states to renderer animations:
+  // WATCHING / IDLE -> sleeping
+  // ANALYZING -> thinking
+  // ERROR_FOUND -> attention
+  // EXPLAINING -> speaking
+  // SUCCESS -> attention (wake up celebration)
+  // OFFLINE -> sleeping
+  let legacyState = 'sleeping';
+  if (newState === 'ANALYZING') legacyState = 'thinking';
+  else if (newState === 'ERROR_FOUND') legacyState = 'attention';
+  else if (newState === 'EXPLAINING') legacyState = 'speaking';
+  else if (newState === 'SUCCESS') legacyState = 'attention';
+  else if (newState === 'IDLE' || newState === 'WATCHING' || newState === 'OFFLINE') legacyState = 'sleeping';
+
+  mainWindow.webContents.send('cat:state', legacyState);
+  mainWindow.webContents.send('cat:fsmState', newState);
+}
 
 let ollamaProvider = new OllamaProvider({
   baseUrl: settingsStore.get('ollamaUrl'),
@@ -46,7 +74,7 @@ let ollamaProvider = new OllamaProvider({
 
 let geminiProvider = new GeminiProvider({
   apiKey: settingsStore.get('geminiApiKey'),
-  model: settingsStore.get('geminiModel'),
+  model: settingsStore.get('geminiModel') || CAT_CONFIG.PRIMARY_GEMINI_MODEL,
 });
 
 function createWindow() {
@@ -54,8 +82,13 @@ function createWindow() {
   const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
 
   const savedBounds = settingsStore.get('windowBounds') || {};
-  const winWidth = savedBounds.width || 340;
-  const winHeight = savedBounds.height || 420;
+  let winWidth = savedBounds.width || 190;
+  let winHeight = savedBounds.height || 175;
+  // If legacy oversized bounds are stored, reset to new compact size
+  if (winWidth > 240) {
+    winWidth = 190;
+    winHeight = 175;
+  }
   const winX = savedBounds.x !== null && savedBounds.x !== undefined ? savedBounds.x : screenWidth - winWidth - 24;
   const winY = savedBounds.y !== null && savedBounds.y !== undefined ? savedBounds.y : screenHeight - winHeight - 32;
 
@@ -66,6 +99,7 @@ function createWindow() {
     y: winY,
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
     alwaysOnTop: true,
     resizable: true,
     maximizable: false,
@@ -81,13 +115,6 @@ function createWindow() {
 
   // Keep window on top across all workspaces
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
-
-  // Exclude Catmonto window from desktopCapturer so the code underneath the cat is always visible
-  try {
-    mainWindow.setContentProtection(true);
-  } catch (e) {
-    console.warn('[main] setContentProtection failed:', e.message);
-  }
 
   // Broadcast maximize state changes
   mainWindow.on('maximize', () => {
@@ -106,8 +133,8 @@ function createWindow() {
   mainWindow.on('moved', () => {
     if (!mainWindow || mainWindow.isMaximized()) return;
     const bounds = mainWindow.getBounds();
-    // Only save if it's the normal compact size (don't overwrite default with modal size)
-    if (bounds.width < 500) {
+    // Only save if it's the normal compact size (don't overwrite default with modal or suggestion size)
+    if (bounds.width <= 240) {
       settingsStore.set('windowBounds', bounds);
     }
   });
@@ -115,9 +142,13 @@ function createWindow() {
   const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.loadURL('http://localhost:5173').catch(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadFile(path.join(__dirname, '../dist/index.html')).catch(() => {});
+      }
+    });
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html')).catch(() => {});
   }
 
   mainWindow.on('closed', () => {
@@ -127,159 +158,189 @@ function createWindow() {
 }
 
 /**
- * Screen monitoring loop with Smart Typing Debounce & Delay
+ * Screen monitoring loop with Smart Typing Debounce & Latest-Frame Priority Pipeline
  */
 function startMonitoring() {
   if (monitorInterval) return;
 
-  // Check screen diff every 1.5s for snappy typing activity detection
-  const tickIntervalMs = 1500;
+  setCatState('WATCHING');
+  const tickIntervalMs = CAT_CONFIG.SCREEN_CAPTURE_INTERVAL_MS || 500;
 
   monitorInterval = setInterval(async () => {
-    if (isAnalyzing) return;
-
     const now = Date.now();
     // Backoff protection if rate-limited
     if (now < lastAnalysisTime) return;
 
-    const typingPauseDelay = (settingsStore.get('typingPauseDelaySeconds') || 4) * 1000;
-    const suggestionCooldown = (settingsStore.get('suggestionCooldownSeconds') || 15) * 1000;
-
     try {
       const targetSourceId = settingsStore.get('targetSourceId');
-      // Step 1: Capture screen / window and test for visual changes
-      const captureResult = await screenCapturer.captureScreen(targetSourceId);
+      const isErrorActive = activeErrorFingerprint !== null;
+      const captureResult = await screenCapturer.captureScreen(targetSourceId, isErrorActive);
 
       // Check Privacy Filter
       if (settingsStore.get('privacyShield') !== false) {
         if (privacyFilter.isExcluded(captureResult.name, captureResult.name)) {
-          // Sensitive app detected -> clear pending work and stay quiet
-          hasPendingChange = false;
-          pendingCaptureResult = null;
+          screenHasChangedSinceLastAnalysis = false;
           return;
         }
       }
 
       if (captureResult.hasMeaningfulChange) {
-        // The user is actively typing, editing, or moving on screen!
-        // Record timestamp and wait until typing pauses before analyzing.
+        // Active typing / editing detected! Record timestamp and set flag
         lastScreenChangeTime = now;
-        hasPendingChange = true;
-        pendingCaptureResult = captureResult;
+        screenHasChangedSinceLastAnalysis = true;
+      }
+
+      // If screen is steady and no edits happened, stay resting (ZERO continuous idle polling/spam)
+      if (!screenHasChangedSinceLastAnalysis) {
         return;
       }
 
-      // If we reach here, captureResult.hasMeaningfulChange is FALSE (screen was steady).
-      if (!hasPendingChange) {
-        // No unanalyzed edits pending -> keep cat resting
-        return;
-      }
-
-      // Screen is steady. Check how long the user has paused:
+      // Check typing debounce: wait until user has paused typing for TYPING_DEBOUNCE_MS
       const quietDuration = now - lastScreenChangeTime;
-      if (quietDuration < typingPauseDelay) {
-        // User paused briefly mid-thought -> wait for full typing pause delay!
+      const debounceDelay = CAT_CONFIG.TYPING_DEBOUNCE_MS || 400;
+      if (quietDuration < debounceDelay) {
+        return; // User is actively typing right now
+      }
+
+      // If currently analyzing a prior frame, let it finish.
+      if (isAnalyzing) {
         return;
       }
 
-      // Check cooldown between suggestions to avoid spam
-      if (now - lastSuggestionTime < suggestionCooldown) {
-        return;
-      }
+      // User has paused editing! Capture is ready for fresh analysis
+      screenHasChangedSinceLastAnalysis = false;
+      processFrame(captureResult);
 
-      // Screen has been steady for >= typingPauseDelay, cooldown passed, and pending changes exist!
-      // The user finished writing their code or paused. Now analyze the settled screen!
-      const isSim = settingsStore.get('simulationMode');
-      const aiProviderType = settingsStore.get('aiProvider') || 'gemini';
-
-      // Check provider readiness
-      if (!isSim) {
-        if (aiProviderType === 'gemini') {
-          if (!geminiProvider.apiKey) return;
-        } else {
-          const health = await ollamaProvider.checkHealth();
-          if (!health.available) return;
-        }
-      }
-
-      isAnalyzing = true;
-      lastAnalysisTime = now;
-      hasPendingChange = false;
-      const analyzeCapture = pendingCaptureResult || captureResult;
-      pendingCaptureResult = null;
-
-      // Broadcast thinking state to cat
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('cat:state', 'thinking');
-      }
-
-      let suggestion = null;
-
-      if (isSim) {
-        suggestion = "Bhai, coding smooth chal rahi hai! Sab sahi lag raha hai.";
-      } else if (aiProviderType === 'gemini') {
-        const aiResult = await geminiProvider.analyzeScreen({
-          imageBase64: analyzeCapture.base64,
-          contextHint: analyzeCapture.name || 'Desktop Workspace',
-        });
-        suggestion = aiResult.suggestion;
-      } else {
-        const aiResult = await ollamaProvider.analyzeScreen({
-          imageBase64: analyzeCapture.base64,
-          contextHint: analyzeCapture.name || 'Desktop Workspace',
-        });
-        suggestion = aiResult.suggestion;
-      }
-
-      if (
-        suggestion &&
-        suggestion.trim().length > 0 &&
-        !suggestion.toUpperCase().includes('NO_SUGGESTION')
-      ) {
-        // Verified real error found on settled code!
-        lastSuggestionTime = Date.now();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('cat:state', 'attention');
-          setTimeout(() => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('cat:suggestion', {
-                text: suggestion.trim(),
-                timestamp: Date.now(),
-              });
-              mainWindow.webContents.send('cat:state', 'speaking');
-            }
-          }, 350);
-        }
-      } else {
-        // NO_SUGGESTION -> no errors found on screen, cat sleeps peacefully
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('cat:state', 'sleeping');
-        }
-      }
     } catch (err) {
       if (!err.message?.includes('Screen capture image buffer is empty')) {
         console.error('[Monitoring loop error]:', err.message);
       }
-      const isRateLimit = err.message && (err.message.includes('quota') || err.message.includes('429') || err.message.includes('rate-limit') || err.message.includes('exceeded your current quota'));
-      if (isRateLimit) {
-        // Backoff for 30 seconds so we don't spam Google API when quota limit is hit
-        lastAnalysisTime = Date.now() + 30000;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('cat:suggestion', {
-            text: '[System] Gemini API rate limit reached. Pausing checks for 30 seconds.',
-            timestamp: Date.now(),
-          });
-          mainWindow.webContents.send('cat:state', 'speaking');
-        }
-      } else {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('cat:state', 'sleeping');
-        }
-      }
-    } finally {
-      isAnalyzing = false;
     }
   }, tickIntervalMs);
+}
+
+async function processFrame(captureResult) {
+  if (!captureResult || isAnalyzing) return;
+
+  const isSim = settingsStore.get('simulationMode');
+  const aiProviderType = settingsStore.get('aiProvider') || 'gemini';
+
+  // Check provider readiness
+  if (!isSim) {
+    if (aiProviderType === 'gemini') {
+      if (!geminiProvider.apiKey) return;
+    } else {
+      const health = await ollamaProvider.checkHealth();
+      if (!health.available) return;
+    }
+  }
+
+  isAnalyzing = true;
+  setCatState('ANALYZING');
+  const tProcessStart = Date.now();
+
+  try {
+    let result = null;
+    const isExhibition = Boolean(CAT_CONFIG.EXHIBITION_MODE);
+
+    if (isSim) {
+      result = {
+        hasError: false,
+        suggestion: null,
+      };
+    } else if (aiProviderType === 'gemini') {
+      const activeHint = activeErrorFingerprint
+        ? `Previous error was: "${activeErrorFingerprint}". Check if this error was fixed, or if there is a new/different error in the visible code. If all visible code is now valid or has no syntax errors, return error: false.`
+        : (captureResult.name || 'Desktop Workspace');
+
+      result = await geminiProvider.analyzeScreen({
+        imageBase64: captureResult.base64,
+        contextHint: activeHint,
+        isExhibitionMode: isExhibition,
+      });
+    } else {
+      result = await ollamaProvider.analyzeScreen({
+        imageBase64: captureResult.base64,
+        contextHint: captureResult.name || 'Desktop Workspace',
+      });
+    }
+
+    const totalLatency = Date.now() - tProcessStart;
+    if (CAT_CONFIG.DEBUG_PERF && captureResult.perf && result?.perf) {
+      console.log(
+        `[PERF] Capture: ${captureResult.perf.captureMs}ms | Optimize: ${captureResult.perf.optimizeMs}ms | Network/AI: ${result.perf.networkMs}ms | Total: ${totalLatency}ms`
+      );
+    }
+
+    if (result && result.hasError && result.suggestion) {
+      const isSameError = Boolean(
+        result.fingerprint &&
+        activeErrorFingerprint &&
+        result.fingerprint === activeErrorFingerprint
+      );
+
+      if (!isSameError) {
+        // Verified new or different error! Immediately notify user
+        activeErrorFingerprint = result.fingerprint;
+        lastErrorAlertTime = Date.now();
+
+        setCatState('ERROR_FOUND');
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('cat:suggestion', {
+            text: result.suggestion,
+            errorObj: result.errorObj,
+            model: result.activeModel || geminiProvider.model,
+            timestamp: Date.now(),
+          });
+          setCatState('EXPLAINING');
+        }
+      }
+    } else {
+      // Screen is error-free (hasError is false)
+      if (activeErrorFingerprint !== null) {
+        // User successfully fixed the previous error! Celebrate & clear
+        activeErrorFingerprint = null;
+        setCatState('SUCCESS');
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('cat:suggestion', {
+            text: null,
+            resolved: true,
+            timestamp: Date.now(),
+          });
+        }
+        setTimeout(() => {
+          setCatState('WATCHING');
+        }, 1500);
+      } else {
+        setCatState('WATCHING');
+      }
+    }
+
+  } catch (err) {
+    console.error('[processFrame error]:', err.message);
+    const isRateLimit = err.message && (
+      err.message.includes('quota') ||
+      err.message.includes('429') ||
+      err.message.includes('rate-limit') ||
+      err.message.includes('exceeded your current quota')
+    );
+    if (isRateLimit) {
+      lastAnalysisTime = Date.now() + CAT_CONFIG.RATE_LIMIT_BACKOFF_MS;
+      setCatState('OFFLINE');
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('cat:suggestion', {
+          text: '[System] Gemini API rate limit reached. Pausing checks for 30 seconds.',
+          timestamp: Date.now(),
+        });
+      }
+    } else {
+      setCatState('OFFLINE');
+      setTimeout(() => setCatState('WATCHING'), 4000);
+      lastAnalysisTime = Date.now();
+    }
+  } finally {
+    isAnalyzing = false;
+  }
 }
 
 function stopMonitoring() {
@@ -287,8 +348,10 @@ function stopMonitoring() {
     clearInterval(monitorInterval);
     monitorInterval = null;
   }
-  hasPendingChange = false;
-  pendingCaptureResult = null;
+  screenHasChangedSinceLastAnalysis = false;
+  activeErrorFingerprint = null;
+  lastAutoRecheckTime = 0;
+  setCatState('IDLE');
 }
 
 // IPC Handlers
@@ -331,6 +394,32 @@ ipcMain.handle('permissions:check', async () => {
   } catch (err) {
     return { granted: false, error: err.message };
   }
+});
+
+ipcMain.handle('config:get', async () => {
+  return CAT_CONFIG;
+});
+
+ipcMain.handle('config:update', async (event, overrides) => {
+  if (overrides && typeof overrides === 'object') {
+    Object.assign(CAT_CONFIG, overrides);
+  }
+  return CAT_CONFIG;
+});
+
+ipcMain.handle('capture:setRegion', async (event, region) => {
+  screenCapturer.setCaptureRegion(region);
+  return { success: true, region: screenCapturer.captureRegion };
+});
+
+ipcMain.handle('fsm:getState', async () => {
+  return { fsmState: currentCatState };
+});
+
+ipcMain.handle('cat:clearError', async () => {
+  activeErrorFingerprint = null;
+  setCatState('WATCHING');
+  return { success: true };
 });
 
 ipcMain.handle('ollama:check', async () => {
@@ -486,8 +575,8 @@ ipcMain.on('window:resize', (event, { width, height, center }) => {
   mainWindow.setMaximizable(isWizard);
 
   // Clamp target dimensions to current screen work area
-  const targetWidth = Math.min(width, Math.max(300, screenWidth - 20));
-  const targetHeight = Math.min(height, Math.max(360, screenHeight - 20));
+  const targetWidth = Math.min(width, screenWidth - 20);
+  const targetHeight = Math.min(height, screenHeight - 20);
 
   let newX = currentBounds.x;
   let newY = currentBounds.y;
@@ -495,32 +584,34 @@ ipcMain.on('window:resize', (event, { width, height, center }) => {
   if (center) {
     newX = dispX + Math.round((screenWidth - targetWidth) / 2);
     newY = dispY + Math.round((screenHeight - targetHeight) / 2);
-  } else {
-    // If shrinking back to compact cat window, restore saved bounds
-    if (!isWizard) {
-      const savedBounds = settingsStore.get('windowBounds') || {};
-      newX = savedBounds.x !== null && savedBounds.x !== undefined ? savedBounds.x : dispX + screenWidth - targetWidth - 24;
-      newY = savedBounds.y !== null && savedBounds.y !== undefined ? savedBounds.y : dispY + screenHeight - targetHeight - 32;
+  } else if (isWizard) {
+    // Opening wizard: expand smoothly from current center
+    if (targetWidth > currentBounds.width) {
+      newX = currentBounds.x - Math.round((targetWidth - currentBounds.width) / 2);
+      newY = currentBounds.y - Math.round((targetHeight - currentBounds.height) / 2);
     } else {
-      // Opening wizard: expand smoothly from current position
-      if (targetWidth > currentBounds.width) {
-        newX = currentBounds.x - Math.round((targetWidth - currentBounds.width) / 2);
-        newY = currentBounds.y - Math.round((targetHeight - currentBounds.height) / 2);
-      } else {
-        newX = currentBounds.x + Math.round((currentBounds.width - targetWidth) / 2);
-        newY = currentBounds.y + Math.round((currentBounds.height - targetHeight) / 2);
-      }
+      newX = currentBounds.x + Math.round((currentBounds.width - targetWidth) / 2);
+      newY = currentBounds.y + Math.round((currentBounds.height - targetHeight) / 2);
     }
+  } else if (currentBounds.width >= 500) {
+    // Shrinking back from wizard to compact cat window, restore saved bounds
+    const savedBounds = settingsStore.get('windowBounds') || {};
+    newX = savedBounds.x !== null && savedBounds.x !== undefined ? savedBounds.x : dispX + screenWidth - targetWidth - 24;
+    newY = savedBounds.y !== null && savedBounds.y !== undefined ? savedBounds.y : dispY + screenHeight - targetHeight - 32;
+  } else {
+    // In compact mode: anchor the cat's bottom so cat remains fixed in place when bubbles/dialogs appear
+    newY = currentBounds.y + (currentBounds.height - targetHeight);
+    newX = currentBounds.x + Math.round((currentBounds.width - targetWidth) / 2);
+  }
 
-    // Clamp to visible work area of this display
-    if (newX < dispX + 10) newX = dispX + 10;
-    if (newY < dispY + 10) newY = dispY + 10;
-    if (newX + targetWidth > dispX + screenWidth - 10) {
-      newX = dispX + screenWidth - targetWidth - 10;
-    }
-    if (newY + targetHeight > dispY + screenHeight - 10) {
-      newY = dispY + screenHeight - targetHeight - 10;
-    }
+  // Clamp to visible work area of this display
+  if (newX < dispX + 10) newX = dispX + 10;
+  if (newY < dispY + 10) newY = dispY + 10;
+  if (newX + targetWidth > dispX + screenWidth - 10) {
+    newX = dispX + screenWidth - targetWidth - 10;
+  }
+  if (newY + targetHeight > dispY + screenHeight - 10) {
+    newY = dispY + screenHeight - targetHeight - 10;
   }
 
   mainWindow.setBounds({
@@ -539,7 +630,12 @@ app.whenReady().then(() => {
   if (currentKey) {
     geminiProvider.setApiKey(currentKey);
   }
-  geminiProvider.setModel(settingsStore.get('geminiModel') || 'gemini-3.5-flash');
+  let configuredModel = settingsStore.get('geminiModel') || CAT_CONFIG.PRIMARY_GEMINI_MODEL;
+  if (!configuredModel || configuredModel === 'gemini-flash-lite-latest') {
+    configuredModel = CAT_CONFIG.PRIMARY_GEMINI_MODEL;
+    settingsStore.set('geminiModel', configuredModel);
+  }
+  geminiProvider.setModel(configuredModel);
 
   createWindow();
 

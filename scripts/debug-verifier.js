@@ -87,20 +87,27 @@ app.whenReady().then(async () => {
   }));
   ipcMain.handle('window:isMaximized', async () => false);
   ipcMain.handle('window:toggleMaximize', async () => false);
-  ipcMain.on('window:resize', () => {});
+  ipcMain.handle('cat:clearError', async () => ({ success: true }));
+  ipcMain.on('window:resize', (event, { width, height }) => {
+    if (win && !win.isDestroyed()) win.setSize(width, height);
+  });
 
   const loadTarget = 'http://localhost:5173';
-  console.log(`Loading application from: ${loadTarget}...`);
-  await win.loadURL(loadTarget);
+  try {
+    await win.loadURL(loadTarget);
+  } catch (_) {
+    console.log('Vite dev server not running on 5173, loading from built dist/index.html...');
+    await win.loadFile(path.join(__dirname, '../dist/index.html'));
+  }
   await sleep(1500);
 
   // 1. CAPTURE COMPACT FLOATING CAT COMPANION
-  win.setSize(340, 440);
+  win.setSize(190, 175);
   await sleep(600);
   await saveScreenshot(win, '01_compact_cat_companion');
 
   // 1b. CAPTURE WITH SPEECH BUBBLE
-  win.setSize(340, 520);
+  win.setSize(290, 270);
   win.webContents.send('cat:suggestion', {
     text: "Hi! I'm Catmonto. Your desktop companion is active and watching safely!",
   });
@@ -113,9 +120,10 @@ app.whenReady().then(async () => {
     if (dismissBtn) dismissBtn.click();
   })()`);
   await sleep(300);
-  win.setSize(340, 440);
+  win.setSize(190, 175);
 
   // 2. TRIGGER ASK CAT INPUT
+  win.setSize(230, 220);
   await win.webContents.executeJavaScript(`(() => {
     const askBtn = document.querySelector('.quick-ask-btn');
     if (askBtn) askBtn.click();
@@ -129,6 +137,7 @@ app.whenReady().then(async () => {
     if (askBtn) askBtn.click();
   })()`);
   await sleep(300);
+  win.setSize(190, 175);
 
   // 3. OPEN SETUP WIZARD (STEP 1: PRIVACY)
   win.setSize(840, 620);

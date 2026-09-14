@@ -130,14 +130,14 @@ class ScreenCapturer {
     try {
       sources = await desktopCapturer.getSources({
         types: isTargetSpecific ? ['window', 'screen'] : ['screen', 'window'],
-        thumbnailSize: { width: Math.min(width, 1920), height: Math.min(height, 1080) },
+        thumbnailSize: { width: Math.min(width, 1280), height: Math.min(height, 720) },
         fetchWindowIcons: false,
       });
     } catch (err) {
       console.warn('[ScreenCapturer] getSources failed, falling back to screen only:', err.message);
       sources = await desktopCapturer.getSources({
         types: ['screen'],
-        thumbnailSize: { width: Math.min(width, 1920), height: Math.min(height, 1080) },
+        thumbnailSize: { width: Math.min(width, 1280), height: Math.min(height, 720) },
       });
     }
 
@@ -185,14 +185,21 @@ class ScreenCapturer {
     // Save current as last
     this.lastThumbnail = microBitmap;
 
-    // Return JPEG base64 buffer for LLM (crisp, lightweight compared to raw PNG)
-    const jpegBuffer = image.toJPEG(88);
-    const base64 = jpegBuffer.toString('base64');
-
+    // Return result with lazy base64 encoding (only computed when AI analysis reads it)
+    // JPEG quality 78: smaller payload = faster API response, still fully readable for LLM
     return {
       hasMeaningfulChange,
-      base64,
-      dataUrl: `data:image/jpeg;base64,${base64}`,
+      image,
+      _base64: null,
+      get base64() {
+        if (!this._base64) {
+          this._base64 = image.toJPEG(78).toString('base64');
+        }
+        return this._base64;
+      },
+      get dataUrl() {
+        return `data:image/jpeg;base64,${this.base64}`;
+      },
       width: image.getSize().width,
       height: image.getSize().height,
       name: source.name,

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "meta/muse-spark-1.3-contributor",
+  "small_model": "meta/muse-spark-1.3-contributor",
+  "lsp": true,
+  "provider": {
+    "meta": {
+      "models": {
+        "muse-spark-1.3-contributor": {
+          "options": {
+            "reasoningEffort": "minimal",
+            "textVerbosity": "low"
+          }
+        }
+      }
+    }
+  },
+  "agent": {
+    "fast-fix": {
+      "description": "Fast error fixer. Use for syntax errors, build errors, and quick fixes.",
+      "mode": "subagent",
+      "model": "meta/muse-spark-1.3-contributor",
+      "options": {
+        "reasoningEffort": "minimal",
+        "textVerbosity": "low"
+      },
+      "steps": 10,
+      "prompt": "You are a fast error-fixer. Given an error message and code, reply in this exact short format:\n1. Error: one line what the error is\n2. Cause: one line why it happens\n3. Fix: minimal code change only\nDo not explain extra. Be instant and concise."
+    }
+  },
+  "command": {
+    "fix-error": {
+      "description": "Fast fix for last error",
+      "agent": "fast-fix",
+      "template": "Fix this error fast. Error/output:\n$ARGUMENTS\n\n1. What is the error (1 line)\n2. How to fix (minimal change)\nKeep answer under 10 lines."
+    }
+  }
+}

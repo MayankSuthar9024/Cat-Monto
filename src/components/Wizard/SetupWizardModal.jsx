@@ -73,6 +73,14 @@ export default function SetupWizardModal({
     (settings.excludedApps || []).join(', ')
   );
 
+  // Observation timing & delay states
+  const [typingPauseDelaySeconds, setTypingPauseDelaySeconds] = useState(
+    settings.typingPauseDelaySeconds !== undefined ? settings.typingPauseDelaySeconds : 4
+  );
+  const [suggestionCooldownSeconds, setSuggestionCooldownSeconds] = useState(
+    settings.suggestionCooldownSeconds !== undefined ? settings.suggestionCooldownSeconds : 15
+  );
+
   // Permission test snapshot
   const [testSnapshot, setTestSnapshot] = useState(null);
   const [capturingTest, setCapturingTest] = useState(false);
@@ -184,6 +192,8 @@ export default function SetupWizardModal({
       targetSourceName: 'Entire Screen',
       ollamaUrl,
       model: ollamaModel,
+      typingPauseDelaySeconds: Number(typingPauseDelaySeconds) || 4,
+      suggestionCooldownSeconds: Number(suggestionCooldownSeconds) || 15,
       completedOnboarding: true,
     };
 
@@ -748,6 +758,66 @@ export default function SetupWizardModal({
                   )}
                 </div>
               </div>
+
+              {/* OBSERVATION TIMING & DELAY CARD */}
+              <div className="wizard-card" style={{ marginTop: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
+                      Observation Pacing & Delay (टाइपिंग डिले)
+                    </h4>
+                    <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
+                      Controls when Catmonto inspects your screen so it never interrupts you while you are actively writing code.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8 }}>
+                  <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#334155', marginBottom: 4 }}>
+                      Typing Pause Delay
+                    </label>
+                    <select
+                      value={typingPauseDelaySeconds}
+                      onChange={(e) => setTypingPauseDelaySeconds(Number(e.target.value))}
+                      className="wizard-input"
+                      style={{ fontSize: 12, padding: '6px 8px', width: '100%' }}
+                    >
+                      <option value={2}>2s (Fast)</option>
+                      <option value={4}>4s (Balanced - Recommended)</option>
+                      <option value={6}>6s (Relaxed - Deep coding)</option>
+                      <option value={8}>8s (Patient - Long thoughts)</option>
+                    </select>
+                    <span style={{ display: 'block', fontSize: 10, color: '#64748b', marginTop: 4 }}>
+                      Waits this long after typing stops before analyzing.
+                    </span>
+                  </div>
+
+                  <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#334155', marginBottom: 4 }}>
+                      Suggestion Cooldown
+                    </label>
+                    <select
+                      value={suggestionCooldownSeconds}
+                      onChange={(e) => setSuggestionCooldownSeconds(Number(e.target.value))}
+                      className="wizard-input"
+                      style={{ fontSize: 12, padding: '6px 8px', width: '100%' }}
+                    >
+                      <option value={10}>10s (Frequent)</option>
+                      <option value={15}>15s (Standard - Recommended)</option>
+                      <option value={30}>30s (Quiet mode)</option>
+                      <option value={60}>60s (Minimal interruptions)</option>
+                    </select>
+                    <span style={{ display: 'block', fontSize: 10, color: '#64748b', marginTop: 4 }}>
+                      Minimum interval between consecutive suggestions.
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -779,6 +849,14 @@ export default function SetupWizardModal({
                   <span className="summary-val">
                     {rememberSecurely ? '🔒 Encrypted with Windows DPAPI' : 'Session only'}
                   </span>
+                </div>
+                <div className="summary-row">
+                  <span className="summary-label">Typing Delay:</span>
+                  <span className="summary-val highlight">{typingPauseDelaySeconds}s pause before checking</span>
+                </div>
+                <div className="summary-row">
+                  <span className="summary-label">Cooldown:</span>
+                  <span className="summary-val">{suggestionCooldownSeconds}s between suggestions</span>
                 </div>
               </div>
 

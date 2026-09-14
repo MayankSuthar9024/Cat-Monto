@@ -11,6 +11,8 @@ const DEFAULT_SETTINGS = {
   ollamaUrl: 'http://127.0.0.1:11434',
   model: 'qwen2.5-vl:latest',
   checkIntervalSeconds: 3,
+  typingPauseDelaySeconds: 4,
+  suggestionCooldownSeconds: 15,
   windowBounds: { x: null, y: null, width: 340, height: 420 },
   targetSourceId: 'entire-screen',
   targetSourceName: 'Entire Screen',

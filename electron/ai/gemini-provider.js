@@ -1,46 +1,49 @@
 const { AIProvider } = require('./provider');
 
-const GEMINI_SYSTEM_PROMPT = `You are Catmonto, a professional AI programming assistant and desktop companion.
-You inspect the user's active screen (IDE, code editor, terminal, browser) to catch REAL, VERIFIED programming and markup errors.
+const GEMINI_SYSTEM_PROMPT = `You are Catmonto, a fast AI code error detector and desktop companion.
+You inspect the user's active screen to catch REAL programming and markup errors.
 
-══════════════════════════════════════════════════════════════════════
-RULE 1: ACCURATE MULTI-LANGUAGE ERROR DETECTION (ZERO FALSE ALARMS)
-══════════════════════════════════════════════════════════════════════
-- Your default response is: NO_SUGGESTION
-- In normal states with no errors, respond ONLY with: NO_SUGGESTION
-- Never invent or assume an error. Incomplete typing or normal work-in-progress is NOT an error.
-- Support ALL languages equally (HTML, CSS, JavaScript, TypeScript, Python, C++, C, Java, Rust, Go, SQL, etc.):
-  1. HTML / Web Markup: Catch unclosed tags (e.g. unclosed '<sectio' or missing '>'), mismatched tags (e.g. '</main>' with no opening '<main>'), misspelled standard tags ('sectio' instead of 'section'), unclosed quotes/attributes, and tags highlighted in red/pink syntax error coloring by the editor.
-  2. IDE Syntax Errors: Red squiggly underline or red error badge in editor/Problems panel.
-  3. Terminal / Compiler Crashes: Explicit compiler errors (g++, clang, tsc, javac, python), stack traces, or build failure logs.
-  4. Browser / Runtime Crashes: Red console error in DevTools or runtime crash banner.
+═══════════════════════════════════════════════════
+RULE 1: ERROR DETECTION — STRICT BUT COMPREHENSIVE
+═══════════════════════════════════════════════════
+Default response: NO_SUGGESTION
 
-══════════════════════════════════════════════════════════════════════
-RULE 2: STRICT PROFESSIONAL FORMAT — ABSOLUTELY ZERO EMOJIS
-══════════════════════════════════════════════════════════════════════
-- DO NOT USE ANY EMOJIS. Never use symbols like 📍, 💡, ⚠️, 🐾, etc.
-- Always use this clean, professional format:
+WORK-IN-PROGRESS PROTECTION (important!):
+- If code looks actively being typed (cursor mid-line, partial keyword), output: NO_SUGGESTION
+- A partial/unfinished line is NOT an error. Only flag completed, settled code.
 
-[Line X] Error: [Concise description of the specific error]
-Fix: [Exact corrected code or fix]
+DETECT THESE CONFIRMED ERRORS:
+1. HTML / Web Markup errors (high priority):
+   - Unclosed tags that appear complete but lack closing: <div> with no </div>
+   - Mismatched tags: </section> closing a <div>
+   - Missing required attributes: <img> without src
+   - Misspelled HTML tags that editor highlights in red (e.g. <divv>, <spna>)
+   - Visible red/pink highlighted tags in the editor
+2. IDE Syntax Errors: Red squiggly underlines or Problems panel errors on completed code
+3. Terminal / Compiler Crashes: Error output, stack traces, build failures
+4. Browser Console: Uncaught errors or red console messages
+5. JS/TS/Python/etc: Missing brackets, syntax errors visible in editor
 
-(If error is in terminal without an editor line number):
-[Terminal] Error: [Exact error message or compiler output]
-Fix: [Exact terminal command or code fix]
+═══════════════════════════════════════════════════
+RULE 2: FORMAT — ZERO EMOJIS, ULTRA CONCISE
+═══════════════════════════════════════════════════
+[Line X] Error: [what's wrong]
+Fix: [exact fix]
 
-══════════════════════════════════════════════════════════════════════
-RULE 3: NATURAL LANGUAGE MATCHING
-══════════════════════════════════════════════════════════════════════
-- If user context or code comments are in Hindi/Hinglish:
-  Respond in concise, professional Hinglish without emojis.
-  Example:
-  [Line 102] HTML Error: Tag '<sectio' misspelled hai aur unclosed hai.
-  Fix: Isko '<section class="bigCard">' karke closing '</section>' ensure karo.
-- If in English:
-  [Line 102] HTML Error: Misspelled tag '<sectio>' and unclosed closing tag.
-  Fix: Change '<sectio' to '<section>' and close properly with '</section>'.
-- Keep response under 3-4 lines. No markdown headers, no conversational filler, no emojis.
-- If NO real error is visible, output ONLY: NO_SUGGESTION`;
+OR for terminal errors:
+[Terminal] Error: [error text]
+Fix: [fix command or code]
+
+Max 3 lines total. No intro, no explanations, just the error and fix.
+
+═══════════════════════════════════════════════════
+RULE 3: LANGUAGE
+═══════════════════════════════════════════════════
+Match user's language (English/Hindi/Hinglish). No emojis ever.
+Hindi example: [Line 5] HTML Error: <div> tag close nahi hua hai. Fix: </div> add karo line 5 ke baad.
+English example: [Line 5] HTML Error: Unclosed <div> tag. Fix: Add </div> after line 5.
+
+If no confirmed error or code is in progress: NO_SUGGESTION`;
 
 const GEMINI_MANUAL_ASK_PROMPT = `You are Catmonto, a professional AI programming assistant.
 The user is asking a direct question about their screen.
@@ -59,7 +62,9 @@ class GeminiProvider extends AIProvider {
   constructor(options = {}) {
     super('gemini');
     this.apiKey = options.apiKey || '';
-    this.model = options.model || 'gemini-3.5-flash';
+    const deprecated = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'];
+    const initial = options.model || 'gemini-3.5-flash';
+    this.model = deprecated.includes(initial) ? 'gemini-3.5-flash' : initial;
   }
 
   setApiKey(key) {
@@ -67,7 +72,9 @@ class GeminiProvider extends AIProvider {
   }
 
   setModel(model) {
-    this.model = model || 'gemini-3.5-flash';
+    const deprecated = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'];
+    const chosen = model || 'gemini-3.5-flash';
+    this.model = deprecated.includes(chosen) ? 'gemini-3.5-flash' : chosen;
   }
 
   /**
@@ -108,7 +115,8 @@ class GeminiProvider extends AIProvider {
   }
 
   /**
-   * Multimodal vision analysis with automatic fallback for high reliability
+   * Multimodal vision analysis — optimized for speed and HTML error detection.
+   * Uses primary model only with tight token limit; falls back once on failure.
    */
   async analyzeScreen({ imageBase64, userPrompt, contextHint }) {
     if (!this.apiKey) {
@@ -122,11 +130,14 @@ class GeminiProvider extends AIProvider {
     const cleanBase64 = (imageBase64 || '').replace(/^data:image\/[a-z]+;base64,/, '');
 
     const promptText = isManualAsk
-      ? `User Question about visible screen: "${userPrompt}"\nContext: ${contextHint || 'Desktop Workspace'}\nAnalyze the visible screen and answer directly with exact line numbers and solutions without emojis.`
-      : `Active Workspace Inspection: ${contextHint || 'Desktop'}.
-Task: Inspect the screen for any active code or markup errors in any language (HTML, CSS, JS/TS, Python, C++, Java, etc.).
-- If NO error exists on screen, output ONLY: NO_SUGGESTION
-- If a REAL error is visible (e.g. unclosed/mismatched HTML tag, IDE red squiggly error, terminal compiler error, or console crash), specify line number, error description, and fix using standard format without emojis.`;
+      ? `User Question: "${userPrompt}"\nContext: ${contextHint || 'Desktop Workspace'}\nAnswer directly with exact line numbers and solutions. No emojis.`
+      : `Screen: ${contextHint || 'Desktop'}.
+Detect any CONFIRMED completed errors visible:
+- HTML: unclosed tags, misspelled tags, mismatched tags, red-highlighted markup
+- IDE: red squiggles, error badges on finished code lines
+- Terminal: compiler errors, tracebacks, build failures
+- If code is still being typed/incomplete: NO_SUGGESTION
+- If no error: NO_SUGGESTION`;
 
     const userParts = [{ text: promptText }];
     if (cleanBase64 && cleanBase64.length > 50) {
@@ -138,19 +149,20 @@ Task: Inspect the screen for any active code or markup errors in any language (H
       });
     }
 
-    // Candidate models in order of priority (Fastest & most accurate first)
+    // Use only primary model + one fast fallback to avoid long waits from 3-model chain
     const primaryModel = this.model || 'gemini-flash-lite-latest';
-    const fallbackChain = [primaryModel, 'gemini-flash-lite-latest', 'gemini-3.5-flash'];
-    const uniqueModels = [...new Set(fallbackChain)];
+    const fallbackModel = primaryModel === 'gemini-flash-lite-latest' ? 'gemini-3.5-flash' : 'gemini-flash-lite-latest';
+    const modelsToTry = [...new Set([primaryModel, fallbackModel])];
 
     let lastError = null;
 
-    for (const modelToUse of uniqueModels) {
+    for (const modelToUse of modelsToTry) {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent?key=${encodeURIComponent(this.apiKey.trim())}`;
 
       const generationConfig = {
         temperature: isManualAsk ? 0.2 : 0.0,
-        maxOutputTokens: 1024,
+        // 256 tokens is more than enough for a 3-line error report — much faster than 1024
+        maxOutputTokens: isManualAsk ? 512 : 256,
       };
 
       // Only models supporting thinking accept thinkingConfig (e.g. 3.5, 2.5-pro)
@@ -176,14 +188,15 @@ Task: Inspect the screen for any active code or markup errors in any language (H
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(22000),
+          // 12s timeout: fast enough to feel responsive, long enough for the model to respond
+          signal: AbortSignal.timeout(12000),
         });
 
         if (!response.ok) {
           const errJson = await response.json().catch(() => ({}));
           const errMsg = errJson?.error?.message || `HTTP ${response.status}`;
           if (response.status === 400 || response.status === 429 || response.status === 503 || response.status === 404) {
-            console.warn(`[GeminiProvider] Model ${modelToUse} returned ${response.status} (${errMsg}). Trying fallback model...`);
+            console.warn(`[GeminiProvider] Model ${modelToUse} returned ${response.status}. Trying fallback...`);
             lastError = new Error(errMsg);
             continue;
           }

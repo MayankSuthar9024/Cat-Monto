@@ -30,6 +30,10 @@ let mainWindow = null;
 let monitorInterval = null;
 let isAnalyzing = false;
 let lastAnalysisTime = 0;
+let lastSuggestionTime = 0;
+let lastScreenChangeTime = 0;
+let hasPendingChange = false;
+let pendingCaptureResult = null;
 
 const settingsStore = new SettingsStore();
 const privacyFilter = new PrivacyFilter(settingsStore.get('excludedApps'));
@@ -123,19 +127,23 @@ function createWindow() {
 }
 
 /**
- * Screen monitoring loop
+ * Screen monitoring loop with Smart Typing Debounce & Delay
  */
 function startMonitoring() {
   if (monitorInterval) return;
 
-  const intervalSec = settingsStore.get('checkIntervalSeconds') || 3;
+  // Check screen diff every 1.5s for snappy typing activity detection
+  const tickIntervalMs = 1500;
 
   monitorInterval = setInterval(async () => {
     if (isAnalyzing) return;
 
-    // Minimum cooldown between AI calls (3.5 seconds) for fast reaction without spamming
     const now = Date.now();
-    if (now - lastAnalysisTime < 3500) return;
+    // Backoff protection if rate-limited
+    if (now < lastAnalysisTime) return;
+
+    const typingPauseDelay = (settingsStore.get('typingPauseDelaySeconds') || 4) * 1000;
+    const suggestionCooldown = (settingsStore.get('suggestionCooldownSeconds') || 15) * 1000;
 
     try {
       const targetSourceId = settingsStore.get('targetSourceId');
@@ -145,16 +153,42 @@ function startMonitoring() {
       // Check Privacy Filter
       if (settingsStore.get('privacyShield') !== false) {
         if (privacyFilter.isExcluded(captureResult.name, captureResult.name)) {
-          // Sensitive app detected -> do not analyze
+          // Sensitive app detected -> clear pending work and stay quiet
+          hasPendingChange = false;
+          pendingCaptureResult = null;
           return;
         }
       }
 
-      if (!captureResult.hasMeaningfulChange) {
-        // Screen hasn't changed meaningfully -> stay quiet
+      if (captureResult.hasMeaningfulChange) {
+        // The user is actively typing, editing, or moving on screen!
+        // Record timestamp and wait until typing pauses before analyzing.
+        lastScreenChangeTime = now;
+        hasPendingChange = true;
+        pendingCaptureResult = captureResult;
         return;
       }
 
+      // If we reach here, captureResult.hasMeaningfulChange is FALSE (screen was steady).
+      if (!hasPendingChange) {
+        // No unanalyzed edits pending -> keep cat resting
+        return;
+      }
+
+      // Screen is steady. Check how long the user has paused:
+      const quietDuration = now - lastScreenChangeTime;
+      if (quietDuration < typingPauseDelay) {
+        // User paused briefly mid-thought -> wait for full typing pause delay!
+        return;
+      }
+
+      // Check cooldown between suggestions to avoid spam
+      if (now - lastSuggestionTime < suggestionCooldown) {
+        return;
+      }
+
+      // Screen has been steady for >= typingPauseDelay, cooldown passed, and pending changes exist!
+      // The user finished writing their code or paused. Now analyze the settled screen!
       const isSim = settingsStore.get('simulationMode');
       const aiProviderType = settingsStore.get('aiProvider') || 'gemini';
 
@@ -170,6 +204,9 @@ function startMonitoring() {
 
       isAnalyzing = true;
       lastAnalysisTime = now;
+      hasPendingChange = false;
+      const analyzeCapture = pendingCaptureResult || captureResult;
+      pendingCaptureResult = null;
 
       // Broadcast thinking state to cat
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -182,14 +219,14 @@ function startMonitoring() {
         suggestion = "Bhai, coding smooth chal rahi hai! Sab sahi lag raha hai.";
       } else if (aiProviderType === 'gemini') {
         const aiResult = await geminiProvider.analyzeScreen({
-          imageBase64: captureResult.base64,
-          contextHint: captureResult.name || 'Desktop Workspace',
+          imageBase64: analyzeCapture.base64,
+          contextHint: analyzeCapture.name || 'Desktop Workspace',
         });
         suggestion = aiResult.suggestion;
       } else {
         const aiResult = await ollamaProvider.analyzeScreen({
-          imageBase64: captureResult.base64,
-          contextHint: captureResult.name || 'Desktop Workspace',
+          imageBase64: analyzeCapture.base64,
+          contextHint: analyzeCapture.name || 'Desktop Workspace',
         });
         suggestion = aiResult.suggestion;
       }
@@ -199,7 +236,8 @@ function startMonitoring() {
         suggestion.trim().length > 0 &&
         !suggestion.toUpperCase().includes('NO_SUGGESTION')
       ) {
-        // We have a verified real error with line number and solution!
+        // Verified real error found on settled code!
+        lastSuggestionTime = Date.now();
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('cat:state', 'attention');
           setTimeout(() => {
@@ -241,7 +279,7 @@ function startMonitoring() {
     } finally {
       isAnalyzing = false;
     }
-  }, intervalSec * 1000);
+  }, tickIntervalMs);
 }
 
 function stopMonitoring() {
@@ -249,6 +287,8 @@ function stopMonitoring() {
     clearInterval(monitorInterval);
     monitorInterval = null;
   }
+  hasPendingChange = false;
+  pendingCaptureResult = null;
 }
 
 // IPC Handlers

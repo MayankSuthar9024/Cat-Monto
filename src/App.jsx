@@ -17,14 +17,20 @@ export default function App() {
   // Load initial settings and status from Electron preload bridge
   useEffect(() => {
     if (window.catmonto) {
-      window.catmonto.getSettings().then((s) => {
-        setSettings(s || {});
-        setIsMonitoring(Boolean(s?.monitoringEnabled));
-      });
+      window.catmonto
+        .getSettings()
+        .then((s) => {
+          setSettings(s || {});
+          setIsMonitoring(Boolean(s?.monitoringEnabled));
+        })
+        .catch((err) => console.warn('[App] getSettings error:', err));
 
-      window.catmonto.checkOllama().then((status) => {
-        setOllamaStatus(status);
-      });
+      window.catmonto
+        .checkOllama()
+        .then((status) => {
+          setOllamaStatus(status);
+        })
+        .catch((err) => console.warn('[App] checkOllama error:', err));
 
       // Listen for suggestions from background screen analysis (errors in code)
       const unsubscribeSuggestion = window.catmonto.onSuggestion((data) => {

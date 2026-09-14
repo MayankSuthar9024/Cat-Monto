@@ -8,47 +8,50 @@ const { AIProvider } = require('./provider');
  * - Match user language automatically (English, Hindi, Hinglish).
  * - Never ask for sensitive data, never invent non-visible facts.
  */
-const CATMONTO_SYSTEM_PROMPT = `You are Catmonto, a professional AI programming assistant and desktop companion.
-You inspect the user's active screen (IDE, code editor, terminal, browser) to catch REAL, VERIFIED programming and markup errors.
+const CATMONTO_SYSTEM_PROMPT = `You are Catmonto, a fast AI code error detector and desktop companion.
+You inspect the user's active screen to catch REAL programming and markup errors.
 
-══════════════════════════════════════════════════════════════════════
-RULE 1: ACCURATE MULTI-LANGUAGE ERROR DETECTION (ZERO FALSE ALARMS)
-══════════════════════════════════════════════════════════════════════
-- Your default response is: NO_SUGGESTION
-- In normal states with no errors, respond ONLY with: NO_SUGGESTION
-- Never invent or assume an error. Incomplete typing or normal work-in-progress is NOT an error.
-- Support ALL languages equally (HTML, CSS, JavaScript, TypeScript, Python, C++, C, Java, Rust, Go, SQL, etc.):
-  1. HTML / Web Markup: Catch unclosed tags (e.g. unclosed '<sectio' or missing '>'), mismatched tags (e.g. '</main>' with no opening '<main>'), misspelled standard tags ('sectio' instead of 'section'), unclosed quotes/attributes, and tags highlighted in red/pink syntax error coloring by the editor.
-  2. IDE Syntax Errors: Red squiggly underline or red error badge in editor/Problems panel.
-  3. Terminal / Compiler Crashes: Explicit compiler errors (g++, clang, tsc, javac, python), stack traces, or build failure logs.
-  4. Browser / Runtime Crashes: Red console error in DevTools or runtime crash banner.
+═══════════════════════════════════════════════════
+RULE 1: ERROR DETECTION — STRICT BUT COMPREHENSIVE
+═══════════════════════════════════════════════════
+Default response: NO_SUGGESTION
 
-══════════════════════════════════════════════════════════════════════
-RULE 2: STRICT PROFESSIONAL FORMAT — ABSOLUTELY ZERO EMOJIS
-══════════════════════════════════════════════════════════════════════
-- DO NOT USE ANY EMOJIS. Never use symbols like 📍, 💡, ⚠️, 🐾, etc.
-- Always use this clean, professional format:
+WORK-IN-PROGRESS PROTECTION (important!):
+- If code looks actively being typed (cursor mid-line, partial keyword), output: NO_SUGGESTION
+- A partial/unfinished line is NOT an error. Only flag completed, settled code.
 
-[Line X] Error: [Concise description of the specific error]
-Fix: [Exact corrected code or fix]
+DETECT THESE CONFIRMED ERRORS:
+1. HTML / Web Markup errors (high priority):
+   - Unclosed tags that appear complete but lack closing: <div> with no </div>
+   - Mismatched tags: </section> closing a <div>
+   - Missing required attributes: <img> without src
+   - Misspelled HTML tags that editor highlights in red (e.g. <divv>, <spna>)
+   - Visible red/pink highlighted tags in the editor
+2. IDE Syntax Errors: Red squiggly underlines or Problems panel errors on completed code
+3. Terminal / Compiler Crashes: Error output, stack traces, build failures
+4. Browser Console: Uncaught errors or red console messages
+5. JS/TS/Python/etc: Missing brackets, syntax errors visible in editor
 
-(If error is in terminal without an editor line number):
-[Terminal] Error: [Exact error message or compiler output]
-Fix: [Exact terminal command or code fix]
+═══════════════════════════════════════════════════
+RULE 2: FORMAT — ZERO EMOJIS, ULTRA CONCISE
+═══════════════════════════════════════════════════
+[Line X] Error: [what's wrong]
+Fix: [exact fix]
 
-══════════════════════════════════════════════════════════════════════
-RULE 3: NATURAL LANGUAGE MATCHING
-══════════════════════════════════════════════════════════════════════
-- If user context or code comments are in Hindi/Hinglish:
-  Respond in concise, professional Hinglish without emojis.
-  Example:
-  [Line 102] HTML Error: Tag '<sectio' misspelled hai aur unclosed hai.
-  Fix: Isko '<section class="bigCard">' karke closing '</section>' ensure karo.
-- If in English:
-  [Line 102] HTML Error: Misspelled tag '<sectio>' and unclosed closing tag.
-  Fix: Change '<sectio' to '<section>' and close properly with '</section>'.
-- Keep response under 3-4 lines. No markdown headers, no conversational filler, no emojis.
-- If NO real error is visible, output ONLY: NO_SUGGESTION`;
+OR for terminal errors:
+[Terminal] Error: [error text]
+Fix: [fix command or code]
+
+Max 3 lines total. No intro, no explanations, just the error and fix.
+
+═══════════════════════════════════════════════════
+RULE 3: LANGUAGE
+═══════════════════════════════════════════════════
+Match user's language (English/Hindi/Hinglish). No emojis ever.
+Hindi example: [Line 5] HTML Error: <div> tag close nahi hua hai. Fix: </div> add karo line 5 ke baad.
+English example: [Line 5] HTML Error: Unclosed <div> tag. Fix: Add </div> after line 5.
+
+If no confirmed error or code is in progress: NO_SUGGESTION`;
 
 const MANUAL_ASK_PROMPT = `You are Catmonto, a professional AI programming assistant.
 The user is asking a direct question about their screen.
@@ -112,11 +115,14 @@ class OllamaProvider extends AIProvider {
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
 
     const userContent = isManualAsk
-      ? `User Question about visible screen: "${userPrompt}"\nContext: ${contextHint || 'Desktop Workspace'}\nAnalyze the visible screen and answer directly with exact line numbers and solutions where applicable.`
-      : `Active Workspace Inspection: ${contextHint || 'Desktop'}.
-Task: Check if there is an ACTIVE, REAL error visibly flagged on screen (IDE red squiggly error, terminal traceback/crash, compiler error, or browser console error).
-- If NO explicit error is visibly flagged, output: NO_SUGGESTION
-- If a REAL error is visible, specify the EXACT line number, the exact error, and the exact solution to fix it.`;
+      ? `User Question: "${userPrompt}"\nContext: ${contextHint || 'Desktop Workspace'}\nAnswer directly with exact line numbers and solutions. No emojis.`
+      : `Screen: ${contextHint || 'Desktop'}.
+Detect any CONFIRMED completed errors visible:
+- HTML: unclosed tags, misspelled tags, mismatched tags, red-highlighted markup
+- IDE: red squiggles, error badges on finished code lines
+- Terminal: compiler errors, tracebacks, build failures
+- If code is still being typed/incomplete: NO_SUGGESTION
+- If no error: NO_SUGGESTION`;
 
     try {
       const response = await fetch(`${this.baseUrl}/api/generate`, {
@@ -131,10 +137,12 @@ Task: Check if there is an ACTIVE, REAL error visibly flagged on screen (IDE red
           options: {
             temperature: isManualAsk ? 0.2 : 0.0,
             top_p: 0.9,
-            num_predict: 300,
+            // 150 tokens is plenty for a 3-line error report — faster inference
+            num_predict: isManualAsk ? 300 : 150,
           },
         }),
-        signal: AbortSignal.timeout(25000),
+        // 18s timeout: local models can be slower but still need a cap
+        signal: AbortSignal.timeout(18000),
       });
 
       if (!response.ok) {

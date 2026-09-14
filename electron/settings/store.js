@@ -7,7 +7,7 @@ const DEFAULT_SETTINGS = {
   aiProvider: 'gemini', // 'gemini' | 'ollama'
   geminiApiKey: '',
   geminiApiKeyEncrypted: '',
-  geminiModel: 'gemini-flash-latest',
+  geminiModel: 'gemini-3.5-flash',
   ollamaUrl: 'http://127.0.0.1:11434',
   model: 'qwen2.5-vl:latest',
   checkIntervalSeconds: 3,
@@ -91,12 +91,13 @@ class SettingsStore {
           }
         }
 
-        // Automatically migrate deprecated or rate-limited model names to high-availability gemini-3.5-flash
+        // Migrate deprecated models (2.0, 2.5, 1.5) to Gemini 3.5 Flash
         if (
-          merged.geminiModel === 'gemini-2.0-flash' ||
-          merged.geminiModel === 'gemini-2.5-flash' ||
-          merged.geminiModel === 'gemini-3.6-flash' ||
-          !merged.geminiModel
+          !merged.geminiModel ||
+          merged.geminiModel.includes('2.0') ||
+          merged.geminiModel.includes('2.5') ||
+          merged.geminiModel.includes('1.5') ||
+          merged.geminiModel.includes('lite-latest')
         ) {
           merged.geminiModel = 'gemini-3.5-flash';
         }

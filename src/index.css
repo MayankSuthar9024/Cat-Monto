@@ -1,9 +1,13 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 :root {
   --font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --bg-bubble: rgba(255, 255, 255, 0.96);
+  --border-bubble: rgba(226, 232, 240, 0.9);
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --success: #10b981;
+  --warning: #f59e0b;
 }
 
 * {
@@ -22,7 +26,6 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Allow dragging by designated header/cat area */
 .drag-region {
   -webkit-app-region: drag;
 }
@@ -31,7 +34,7 @@ html, body, #root {
   -webkit-app-region: no-drag;
 }
 
-/* Custom scrollbars if needed */
+/* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 4px;
 }
@@ -40,7 +43,322 @@ html, body, #root {
   border-radius: 4px;
 }
 
-/* Floating speech bubble bounce animation */
+/* App container */
+.app-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 8px 12px 8px;
+  overflow: hidden;
+}
+
+.drag-handle-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0;
+  cursor: grab;
+}
+.drag-handle-bar:active {
+  cursor: grabbing;
+}
+.drag-pill {
+  width: 32px;
+  height: 4px;
+  border-radius: 9999px;
+  background: rgba(148, 163, 184, 0.35);
+  transition: background 0.2s ease;
+}
+.drag-handle-bar:hover .drag-pill {
+  background: rgba(100, 116, 139, 0.55);
+}
+
+/* Speech Bubble */
+.bubble-card {
+  position: relative;
+  margin-bottom: 8px;
+  max-width: 280px;
+  background: var(--bg-bubble);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: var(--text-main);
+  border-radius: 18px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--border-bubble);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+  animation: bubblePop 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  user-select: text;
+}
+
+.bubble-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.bubble-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.bubble-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 9999px;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.bubble-close-btn:hover {
+  color: var(--text-main);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.bubble-text {
+  color: #334155;
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+.bubble-arrow {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid var(--bg-bubble);
+  filter: drop-shadow(0 2px 1px rgba(0, 0, 0, 0.04));
+}
+
+/* Ask Cat Input Bar */
+.ask-cat-form {
+  width: 100%;
+  max-width: 280px;
+  background: var(--bg-bubble);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 9999px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--border-bubble);
+  padding: 4px 6px 4px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  animation: bubblePop 0.25s ease-out forwards;
+}
+
+.ask-cat-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--text-main);
+  font-family: inherit;
+}
+.ask-cat-input::placeholder {
+  color: #94a3b8;
+}
+
+.ask-cat-submit {
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  background: var(--primary);
+  border: none;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.ask-cat-submit:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+.ask-cat-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Control Pill Bar */
+.control-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  padding: 5px 10px;
+  border-radius: 9999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border-bubble);
+  margin-top: 6px;
+}
+
+.monitor-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  border: none;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+.monitor-btn.active {
+  background: #ecfdf5;
+  color: #065f46;
+}
+.monitor-btn.active:hover {
+  background: #d1fae5;
+}
+.monitor-btn.paused {
+  background: #fffbeb;
+  color: #92400e;
+}
+.monitor-btn.paused:hover {
+  background: #fef3c7;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+}
+.status-dot.pulse {
+  background: #10b981;
+  animation: pulse 1.5s infinite;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  padding: 5px;
+  border-radius: 9999px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.icon-btn:hover {
+  color: var(--primary);
+  background: #f1f5f9;
+}
+
+/* Settings Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(4px);
+}
+
+.modal-dialog {
+  width: 100%;
+  max-width: 320px;
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  padding: 16px;
+  color: var(--text-main);
+  animation: bubblePop 0.25s ease-out forwards;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 12px;
+}
+.modal-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.form-group {
+  margin-bottom: 10px;
+}
+.form-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 4px;
+}
+.form-input {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+.form-input:focus {
+  border-color: var(--primary);
+}
+
+.test-row {
+  display: flex;
+  gap: 6px;
+}
+
+.test-btn {
+  padding: 6px 10px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.test-btn:hover {
+  background: #e2e8f0;
+}
+
+/* Micro-animations */
 @keyframes bubblePop {
   0% {
     opacity: 0;
@@ -56,11 +374,6 @@ html, body, #root {
   }
 }
 
-.animate-bubble {
-  animation: bubblePop 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-/* Cat breathing animation */
 @keyframes catBreathe {
   0%, 100% {
     transform: translateY(0px) scale(1);
@@ -69,12 +382,10 @@ html, body, #root {
     transform: translateY(-3px) scale(1.015);
   }
 }
-
 .animate-breathe {
   animation: catBreathe 3.6s ease-in-out infinite;
 }
 
-/* Thinking float animation */
 @keyframes catThink {
   0%, 100% {
     transform: rotate(0deg) translateY(0px);
@@ -86,12 +397,10 @@ html, body, #root {
     transform: rotate(2deg) translateY(-2px);
   }
 }
-
 .animate-thinking {
   animation: catThink 2.4s ease-in-out infinite;
 }
 
-/* Attention perk */
 @keyframes catPerk {
   0% {
     transform: scale(1);
@@ -103,7 +412,22 @@ html, body, #root {
     transform: scale(1) translateY(0);
   }
 }
-
 .animate-perk {
   animation: catPerk 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.animate-pulse {
+  animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }

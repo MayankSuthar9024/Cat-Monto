@@ -10,11 +10,28 @@ export default function ControlBar({
   onOpenSettings,
   isOllamaOnline,
   aiProvider = 'gemini',
+  activeModel,
+  isFailoverActive = false,
 }) {
-  const isGemini = aiProvider === 'gemini';
-  const statusTooltip = isGemini
-    ? (isOllamaOnline ? 'Google Gemini API connected & ready' : 'Gemini API key not configured (Click Settings to configure)')
-    : (isOllamaOnline ? 'Local Ollama Vision Model connected' : 'Ollama not detected (Check Ollama in Settings)');
+  let statusTooltip = '';
+  let dotColor = 'var(--warning)';
+
+  if (aiProvider === 'antigravity') {
+    statusTooltip = isOllamaOnline
+      ? `Antigravity Agent Active (${activeModel || 'Gemini 3.8 Flash'})${isFailoverActive ? ' [Auto-Failover Active]' : ''}`
+      : 'Antigravity API key not configured (Click Settings)';
+    dotColor = isOllamaOnline ? '#8b5cf6' : 'var(--warning)';
+  } else if (aiProvider === 'gemini') {
+    statusTooltip = isOllamaOnline
+      ? `Google Gemini API Connected (${activeModel || 'Gemini Flash'})${isFailoverActive ? ' [Auto-Failover Active]' : ''}`
+      : 'Gemini API key not configured (Click Settings)';
+    dotColor = isOllamaOnline ? 'var(--success)' : 'var(--warning)';
+  } else {
+    statusTooltip = isOllamaOnline
+      ? 'Local Ollama Vision Model connected'
+      : 'Ollama not detected (Check Settings)';
+    dotColor = isOllamaOnline ? '#10b981' : 'var(--warning)';
+  }
   return (
     <div className="control-bar no-drag">
       {/* Monitoring toggle */}
@@ -56,7 +73,7 @@ export default function ControlBar({
       <div
         className="status-dot"
         style={{
-          backgroundColor: isOllamaOnline ? 'var(--success)' : 'var(--warning)',
+          backgroundColor: dotColor,
           cursor: 'help',
         }}
         title={statusTooltip}

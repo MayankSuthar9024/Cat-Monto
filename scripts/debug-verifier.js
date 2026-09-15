@@ -107,7 +107,7 @@ app.whenReady().then(async () => {
   await saveScreenshot(win, '01_compact_cat_companion');
 
   // 1b. CAPTURE WITH SPEECH BUBBLE
-  win.setSize(290, 270);
+  win.setSize(330, 330);
   win.webContents.send('cat:suggestion', {
     text: "Hi! I'm Catmonto. Your desktop companion is active and watching safely!",
   });
@@ -123,17 +123,17 @@ app.whenReady().then(async () => {
   win.setSize(190, 175);
 
   // 2. TRIGGER ASK CAT INPUT
-  win.setSize(230, 220);
+  win.setSize(280, 220);
   await win.webContents.executeJavaScript(`(() => {
-    const askBtn = document.querySelector('.quick-ask-btn');
+    const askBtn = document.querySelector('.ask-pill, .quick-ask-btn');
     if (askBtn) askBtn.click();
   })()`);
-  await sleep(500);
+  await sleep(600);
   await saveScreenshot(win, '02_ask_cat_dialog');
 
   // Dismiss Ask Cat input
   await win.webContents.executeJavaScript(`(() => {
-    const askBtn = document.querySelector('.quick-ask-btn');
+    const askBtn = document.querySelector('.ask-pill, .quick-ask-btn');
     if (askBtn) askBtn.click();
   })()`);
   await sleep(300);
@@ -186,20 +186,13 @@ app.whenReady().then(async () => {
   await sleep(600);
   await saveScreenshot(win, '06_wizard_step3_permissions');
 
-  // 7. STEP 4: WINDOW SELECTION
+  // 7. STEP 4: READY & SUMMARY
   await win.webContents.executeJavaScript(`(() => {
     const stepperBtns = document.querySelectorAll('.stepper-item');
     if (stepperBtns[3]) stepperBtns[3].click();
   })()`);
   await sleep(800);
   await saveScreenshot(win, '07_wizard_step4_window_selection');
-
-  // 8. STEP 5: READY & SUMMARY
-  await win.webContents.executeJavaScript(`(() => {
-    const stepperBtns = document.querySelectorAll('.stepper-item');
-    if (stepperBtns[4]) stepperBtns[4].click();
-  })()`);
-  await sleep(600);
   await saveScreenshot(win, '08_wizard_step5_ready');
 
   console.log('=== ALL SCREENSHOTS CAPTURED SUCCESSFULLY ===');

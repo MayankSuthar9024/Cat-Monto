@@ -24,12 +24,19 @@ const CAT_CONFIG = {
   // When null, captures full primary display or active target source
   CAPTURE_REGION: null,
 
-  // Gemini AI Models: Use Gemini 3.5 Flash for high-speed, state-of-the-art vision & zero hallucinations
-  PRIMARY_GEMINI_MODEL: 'gemini-3.5-flash',
-  FALLBACK_GEMINI_MODEL: 'gemini-3.5-flash-lite',
+  // Default AI Models & Multi-Tier Failover Chain
+  PRIMARY_ANTIGRAVITY_MODEL: 'gemini-3.8-flash',
+  PRIMARY_GEMINI_MODEL: 'gemini-3.8-flash',
+  FALLBACK_GEMINI_MODEL: 'gemini-3.5-flash',
+  MODEL_FAILOVER_CHAIN: [
+    'gemini-3.8-flash',
+    'gemini-3.5-flash',
+    'gemini-2.5-flash',
+    'gemini-3.5-flash-lite',
+  ],
 
-  // Rate-limit backoff timeout in milliseconds (30s)
-  RATE_LIMIT_BACKOFF_MS: 30000,
+  // Rate-limit backoff timeout in milliseconds (60s)
+  RATE_LIMIT_BACKOFF_MS: 60000,
 
   // Exhibition mode: faster animations, concise friendly messages, highlighted cards
   EXHIBITION_MODE: false,

@@ -76,9 +76,11 @@ class GeminiProvider extends AIProvider {
   constructor(options = {}) {
     super('gemini');
     this.apiKey = options.apiKey || '';
-    const deprecated = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-flash-lite-latest'];
-    const initial = options.model || CAT_CONFIG.PRIMARY_GEMINI_MODEL;
-    this.model = deprecated.includes(initial) ? 'gemini-3.5-flash' : initial;
+    const deprecated = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-flash-lite-latest'];
+    const initial = options.model || CAT_CONFIG.PRIMARY_GEMINI_MODEL || 'gemini-3.8-flash';
+    this.model = deprecated.includes(initial) ? 'gemini-3.8-flash' : initial;
+    this.modelCooldowns = new Map();
+    this.onFailoverCallback = options.onFailover || null;
     this.liveClient = new GeminiLiveClient({ apiKey: this.apiKey });
   }
 
@@ -90,9 +92,13 @@ class GeminiProvider extends AIProvider {
   }
 
   setModel(model) {
-    const deprecated = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-flash-lite-latest'];
-    const chosen = model || CAT_CONFIG.PRIMARY_GEMINI_MODEL;
-    this.model = deprecated.includes(chosen) ? 'gemini-3.5-flash' : chosen;
+    const deprecated = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-flash-lite-latest'];
+    const chosen = model || CAT_CONFIG.PRIMARY_GEMINI_MODEL || 'gemini-3.8-flash';
+    this.model = deprecated.includes(chosen) ? 'gemini-3.8-flash' : chosen;
+  }
+
+  setOnFailover(callback) {
+    this.onFailoverCallback = callback;
   }
 
   /**
@@ -166,12 +172,21 @@ class GeminiProvider extends AIProvider {
       });
     }
 
-    // Prioritized model chain: Fast-lite first, then fallback
-    const primaryModel = this.model || CAT_CONFIG.PRIMARY_GEMINI_MODEL;
-    const fallbackModel = primaryModel === CAT_CONFIG.PRIMARY_GEMINI_MODEL
-      ? CAT_CONFIG.FALLBACK_GEMINI_MODEL
-      : CAT_CONFIG.PRIMARY_GEMINI_MODEL;
-    const modelsToTry = [...new Set([primaryModel, fallbackModel])];
+    // Multi-tier dynamic failover chain
+    const primaryModel = this.model || CAT_CONFIG.PRIMARY_GEMINI_MODEL || 'gemini-3.8-flash';
+    const chain = CAT_CONFIG.MODEL_FAILOVER_CHAIN || [
+      'gemini-3.8-flash',
+      'gemini-3.5-flash',
+      'gemini-2.5-flash',
+      'gemini-3.5-flash-lite',
+    ];
+    const baseChain = [primaryModel, ...chain.filter((m) => m !== primaryModel)];
+
+    // Prioritize models that are NOT currently on rate-limit cooldown
+    const now = Date.now();
+    const availableModels = baseChain.filter((m) => !this.modelCooldowns.has(m) || now > this.modelCooldowns.get(m));
+    const cooledDownModels = baseChain.filter((m) => this.modelCooldowns.has(m) && now <= this.modelCooldowns.get(m));
+    const modelsToTry = [...new Set([...availableModels, ...cooledDownModels])];
 
     const generationConfig = {
       temperature: isManualAsk ? 0.2 : 0.0,
@@ -207,7 +222,23 @@ class GeminiProvider extends AIProvider {
         if (!response.ok) {
           const errJson = await response.json().catch(() => ({}));
           const errMsg = errJson?.error?.message || `HTTP ${response.status}`;
-          if (response.status === 400 || response.status === 404 || response.status === 429 || response.status === 503) {
+          
+          const isRateLimit = response.status === 429 || (errMsg && (
+            errMsg.includes('Quota exceeded') ||
+            errMsg.includes('ResourceExhausted') ||
+            errMsg.includes('rate limit') ||
+            errMsg.includes('rate-limit')
+          ));
+
+          if (isRateLimit) {
+            const backoffMs = CAT_CONFIG.RATE_LIMIT_BACKOFF_MS || 60000;
+            this.modelCooldowns.set(modelToUse, Date.now() + backoffMs);
+            console.warn(`[GeminiProvider] ${modelToUse} rate-limited (${errMsg}). Cooldown set for ${backoffMs / 1000}s. Auto-failing over to next model...`);
+            lastError = new Error(`Quota limit reached on ${modelToUse}`);
+            continue;
+          }
+
+          if (response.status === 400 || response.status === 404 || response.status === 503) {
             console.warn(`[GeminiProvider] ${modelToUse} returned ${response.status} (${errMsg}). Trying fallback...`);
             lastError = new Error(errMsg);
             continue;
@@ -269,11 +300,24 @@ class GeminiProvider extends AIProvider {
         const totalElapsed = Date.now() - tStart;
         rawText = rawText.trim();
 
+        const didFailover = modelToUse !== primaryModel;
+        if (didFailover && this.onFailoverCallback) {
+          try {
+            this.onFailoverCallback({
+              previousModel: primaryModel,
+              activeModel: modelToUse,
+              reason: 'rate_limit',
+            });
+          } catch (_) {}
+        }
+
         if (isManualAsk) {
           return {
             suggestion: rawText,
             raw: rawText,
             activeModel: modelToUse,
+            failedOver: didFailover,
+            previousModel: primaryModel,
             perf: { networkMs: networkElapsed, totalMs: totalElapsed, firstTokenMs: firstTokenTime },
           };
         }
@@ -289,6 +333,8 @@ class GeminiProvider extends AIProvider {
             fingerprint: null,
             raw: rawText,
             activeModel: modelToUse,
+            failedOver: didFailover,
+            previousModel: primaryModel,
             perf: { networkMs: networkElapsed, totalMs: totalElapsed, firstTokenMs: firstTokenTime },
           };
         }
@@ -302,6 +348,8 @@ class GeminiProvider extends AIProvider {
           fingerprint: validated.fingerprint,
           raw: rawText,
           activeModel: modelToUse,
+          failedOver: didFailover,
+          previousModel: primaryModel,
           perf: { networkMs: networkElapsed, totalMs: totalElapsed, firstTokenMs: firstTokenTime },
         };
 

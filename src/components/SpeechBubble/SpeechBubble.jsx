@@ -141,13 +141,24 @@ export default function SpeechBubble({
 
   const { locationBadge, errorText, fixText, clean } = parseSuggestion(text);
 
-  const formattedModel = modelName
-    ? modelName
+  let formattedModel = 'Gemini Flash';
+  if (modelName) {
+    if (modelName.toLowerCase().includes('antigravity')) {
+      formattedModel = 'Antigravity Agent';
+    } else if (modelName.toLowerCase().includes('3.8')) {
+      formattedModel = 'Gemini 3.8 Flash';
+    } else if (modelName.toLowerCase().includes('3.5')) {
+      formattedModel = 'Gemini 3.5 Flash';
+    } else if (modelName.toLowerCase().includes('2.5')) {
+      formattedModel = 'Gemini 2.5 Flash';
+    } else {
+      formattedModel = modelName
         .replace(/^models\//, '')
         .replace(/-latest$/, '')
         .replace(/-/g, ' ')
-        .replace(/\b\w/g, (c) => c.toUpperCase())
-    : 'Gemini Flash';
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+  }
 
   const handleCopyFix = async (e) => {
     e.stopPropagation();

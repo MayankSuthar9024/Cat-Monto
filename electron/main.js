@@ -44,6 +44,7 @@ const { PrivacyFilter } = require('./privacy/exclusion');
 const { ScreenCapturer } = require('./capture/capturer');
 const { OllamaProvider } = require('./ai/ollama-provider');
 const { GeminiProvider } = require('./ai/gemini-provider');
+const { AntigravityProvider } = require('./ai/antigravity-provider');
 
 let mainWindow = null;
 let monitorInterval = null;
@@ -95,17 +96,40 @@ let geminiProvider = new GeminiProvider({
   model: settingsStore.get('geminiModel') || CAT_CONFIG.PRIMARY_GEMINI_MODEL,
 });
 
+let antigravityProvider = new AntigravityProvider({
+  apiKey: settingsStore.get('geminiApiKey'),
+  model: settingsStore.get('antigravityModel') || CAT_CONFIG.PRIMARY_ANTIGRAVITY_MODEL || 'gemini-3.8-flash',
+});
+
+function setupFailoverNotification(providerInstance, providerType) {
+  providerInstance.setOnFailover(({ previousModel, activeModel, reason }) => {
+    console.log(`[Failover] Provider ${providerType} switched from ${previousModel} to ${activeModel} (${reason})`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('cat:modelFailover', {
+        provider: providerType,
+        previousModel,
+        activeModel,
+        reason,
+        timestamp: Date.now(),
+      });
+    }
+  });
+}
+
+setupFailoverNotification(geminiProvider, 'gemini');
+setupFailoverNotification(antigravityProvider, 'antigravity');
+
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
 
   const savedBounds = settingsStore.get('windowBounds') || {};
-  let winWidth = savedBounds.width || 190;
-  let winHeight = savedBounds.height || 175;
-  // If legacy oversized bounds are stored, reset to new compact size
-  if (winWidth > 240) {
-    winWidth = 190;
-    winHeight = 175;
+  let winWidth = savedBounds.width || 240;
+  let winHeight = savedBounds.height || 185;
+  // If stored bounds are too narrow (< 235) or legacy oversized (> 260), normalize to safe compact size
+  if (winWidth < 235 || winWidth > 260) {
+    winWidth = 240;
+    winHeight = 185;
   }
   const winX = savedBounds.x !== null && savedBounds.x !== undefined ? savedBounds.x : screenWidth - winWidth - 24;
   const winY = savedBounds.y !== null && savedBounds.y !== undefined ? savedBounds.y : screenHeight - winHeight - 32;
@@ -254,8 +278,9 @@ async function processFrame(captureResult) {
 
   // Check provider readiness
   if (!isSim) {
-    if (aiProviderType === 'gemini') {
-      if (!geminiProvider.apiKey) return;
+    if (aiProviderType === 'gemini' || aiProviderType === 'antigravity') {
+      const activeP = aiProviderType === 'antigravity' ? antigravityProvider : geminiProvider;
+      if (!activeP.apiKey) return;
     } else {
       const health = await ollamaProvider.checkHealth();
       if (!health.available) return;
@@ -275,12 +300,72 @@ async function processFrame(captureResult) {
         hasError: false,
         suggestion: null,
       };
+    } else if (aiProviderType === 'antigravity') {
+      try {
+        result = await antigravityProvider.analyzeScreen({
+          imageBase64: captureResult.base64,
+          contextHint: captureResult.name || 'Desktop Workspace',
+          isExhibitionMode: isExhibition,
+        });
+      } catch (err) {
+        if (settingsStore.get('autoModelFailover')) {
+          const oHealth = await ollamaProvider.checkHealth();
+          if (oHealth.available) {
+            console.log('[Failover] Antigravity exhausted. Auto-failing over to local Ollama...');
+            result = await ollamaProvider.analyzeScreen({
+              imageBase64: captureResult.base64,
+              contextHint: captureResult.name || 'Desktop Workspace',
+            });
+            result.activeModel = 'Ollama (Local Failover)';
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('cat:modelFailover', {
+                provider: 'ollama',
+                previousModel: antigravityProvider.model,
+                activeModel: 'Ollama (Local Failover)',
+                reason: 'cloud_quota_exhausted',
+                timestamp: Date.now(),
+              });
+            }
+          } else {
+            throw err;
+          }
+        } else {
+          throw err;
+        }
+      }
     } else if (aiProviderType === 'gemini') {
-      result = await geminiProvider.analyzeScreen({
-        imageBase64: captureResult.base64,
-        contextHint: captureResult.name || 'Desktop Workspace',
-        isExhibitionMode: isExhibition,
-      });
+      try {
+        result = await geminiProvider.analyzeScreen({
+          imageBase64: captureResult.base64,
+          contextHint: captureResult.name || 'Desktop Workspace',
+          isExhibitionMode: isExhibition,
+        });
+      } catch (err) {
+        if (settingsStore.get('autoModelFailover')) {
+          const oHealth = await ollamaProvider.checkHealth();
+          if (oHealth.available) {
+            console.log('[Failover] Gemini exhausted. Auto-failing over to local Ollama...');
+            result = await ollamaProvider.analyzeScreen({
+              imageBase64: captureResult.base64,
+              contextHint: captureResult.name || 'Desktop Workspace',
+            });
+            result.activeModel = 'Ollama (Local Failover)';
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('cat:modelFailover', {
+                provider: 'ollama',
+                previousModel: geminiProvider.model,
+                activeModel: 'Ollama (Local Failover)',
+                reason: 'cloud_quota_exhausted',
+                timestamp: Date.now(),
+              });
+            }
+          } else {
+            throw err;
+          }
+        } else {
+          throw err;
+        }
+      }
     } else {
       result = await ollamaProvider.analyzeScreen({
         imageBase64: captureResult.base64,
@@ -312,7 +397,7 @@ async function processFrame(captureResult) {
           mainWindow.webContents.send('cat:suggestion', {
             text: result.suggestion,
             errorObj: result.errorObj,
-            model: result.activeModel || geminiProvider.model,
+            model: result.activeModel || (aiProviderType === 'antigravity' ? antigravityProvider.model : (aiProviderType === 'gemini' ? geminiProvider.model : 'Ollama')),
             timestamp: Date.now(),
           });
           setCatState('EXPLAINING');
@@ -515,6 +600,10 @@ ipcMain.handle('gemini:validate', async (event, testKey) => {
   return await geminiProvider.checkHealth(testKey);
 });
 
+ipcMain.handle('antigravity:validate', async (event, testKey) => {
+  return await antigravityProvider.checkHealth(testKey);
+});
+
 ipcMain.handle('gemini:testPrompt', async (event, { apiKey, model }) => {
   try {
     const testKey = apiKey || settingsStore.get('geminiApiKey');
@@ -529,6 +618,25 @@ ipcMain.handle('gemini:testPrompt', async (event, { apiKey, model }) => {
       contextHint: 'Live Connection Test',
     });
     return { success: true, text: res.suggestion || res.raw || 'Catmonto API connected!' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('antigravity:testPrompt', async (event, { apiKey, model }) => {
+  try {
+    const testKey = apiKey || settingsStore.get('geminiApiKey');
+    if (!testKey || !testKey.trim()) {
+      return { success: false, error: 'No API key provided.' };
+    }
+    const testModel = model || settingsStore.get('antigravityModel') || 'gemini-3.8-flash';
+    const tester = new AntigravityProvider({ apiKey: testKey, model: testModel });
+    const res = await tester.analyzeScreen({
+      imageBase64: '',
+      userPrompt: 'Introduce yourself as Antigravity Agent in Catmonto in one sharp sentence!',
+      contextHint: 'Live Connection Test',
+    });
+    return { success: true, text: res.suggestion || res.raw || 'Antigravity Agent connected!' };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -552,6 +660,16 @@ ipcMain.handle('cat:ask', async (event, userPrompt) => {
 
     if (isSim) {
       answer = `Main samajh gaya: "${userPrompt}". Screen par sab clear dikh raha hai!`;
+    } else if (aiProviderType === 'antigravity') {
+      if (!antigravityProvider.apiKey) {
+        return { error: 'API key is missing. Click on Cat to set it up.' };
+      }
+      const res = await antigravityProvider.analyzeScreen({
+        imageBase64: capture.base64,
+        userPrompt: userPrompt.trim(),
+        contextHint: capture.name || 'User direct question about screen',
+      });
+      answer = res.suggestion || res.raw || "Screen dekhi, sab theek lag raha hai!";
     } else if (aiProviderType === 'gemini') {
       if (!geminiProvider.apiKey) {
         return { error: 'Gemini API key is missing. Click on Cat to set it up.' };
@@ -578,9 +696,12 @@ ipcMain.handle('cat:ask', async (event, userPrompt) => {
     }
 
     if (mainWindow && !mainWindow.isDestroyed()) {
+      const activeModelLabel = aiProviderType === 'antigravity'
+        ? (antigravityProvider.model || 'gemini-3.8-flash')
+        : (aiProviderType === 'gemini' ? (geminiProvider.model || 'gemini-3.8-flash') : 'Ollama');
       mainWindow.webContents.send('cat:suggestion', {
         text: answer,
-        model: aiProviderType === 'gemini' ? (geminiProvider.model || 'gemini-3.5-flash') : 'Ollama',
+        model: activeModelLabel,
         timestamp: Date.now(),
       });
       mainWindow.webContents.send('cat:state', 'speaking');
@@ -611,9 +732,13 @@ ipcMain.handle('settings:update', async (event, newSettings) => {
 
   if (newSettings.geminiApiKey !== undefined) {
     geminiProvider.setApiKey(updated.geminiApiKey);
+    antigravityProvider.setApiKey(updated.geminiApiKey);
   }
   if (newSettings.geminiModel) {
     geminiProvider.setModel(updated.geminiModel);
+  }
+  if (newSettings.antigravityModel) {
+    antigravityProvider.setModel(updated.antigravityModel);
   }
 
   if (newSettings.excludedApps) {
@@ -682,8 +807,10 @@ ipcMain.on('window:resize', (event, { width, height, center }) => {
   } else if (currentBounds.width >= 500) {
     // Shrinking back from wizard to compact cat window, restore saved bounds
     const savedBounds = settingsStore.get('windowBounds') || {};
-    newX = savedBounds.x !== null && savedBounds.x !== undefined ? savedBounds.x : dispX + screenWidth - targetWidth - 24;
-    newY = savedBounds.y !== null && savedBounds.y !== undefined ? savedBounds.y : dispY + screenHeight - targetHeight - 32;
+    const normWidth = (savedBounds.width && savedBounds.width >= 235 && savedBounds.width <= 260) ? savedBounds.width : 240;
+    const normHeight = (savedBounds.height && savedBounds.height >= 180 && savedBounds.height <= 220) ? savedBounds.height : 185;
+    newX = savedBounds.x !== null && savedBounds.x !== undefined ? savedBounds.x : dispX + screenWidth - normWidth - 24;
+    newY = savedBounds.y !== null && savedBounds.y !== undefined ? savedBounds.y : dispY + screenHeight - normHeight - 32;
   } else {
     // In compact mode: anchor the cat's bottom so cat remains fixed in place when bubbles/dialogs appear
     newY = currentBounds.y + (currentBounds.height - targetHeight);
@@ -715,15 +842,23 @@ app.whenReady().then(() => {
   const currentKey = settingsStore.get('geminiApiKey');
   if (currentKey) {
     geminiProvider.setApiKey(currentKey);
-    // Prioritize Gemini if user has an API key configured
-    settingsStore.set('aiProvider', 'gemini');
+    antigravityProvider.setApiKey(currentKey);
   }
-  let configuredModel = settingsStore.get('geminiModel') || CAT_CONFIG.PRIMARY_GEMINI_MODEL;
-  if (!configuredModel || configuredModel.includes('2.0') || configuredModel.includes('2.5') || configuredModel.includes('1.5') || configuredModel.includes('lite-latest')) {
-    configuredModel = 'gemini-3.5-flash';
-    settingsStore.set('geminiModel', 'gemini-3.5-flash');
+
+  const currentProvider = settingsStore.get('aiProvider');
+  if (!currentProvider) {
+    settingsStore.set('aiProvider', currentKey ? 'antigravity' : 'gemini');
   }
-  geminiProvider.setModel(configuredModel);
+
+  let configuredGeminiModel = settingsStore.get('geminiModel') || CAT_CONFIG.PRIMARY_GEMINI_MODEL || 'gemini-3.8-flash';
+  if (!configuredGeminiModel || configuredGeminiModel.includes('2.0') || configuredGeminiModel.includes('1.5') || configuredGeminiModel.includes('lite-latest')) {
+    configuredGeminiModel = 'gemini-3.8-flash';
+    settingsStore.set('geminiModel', 'gemini-3.8-flash');
+  }
+  geminiProvider.setModel(configuredGeminiModel);
+
+  let configuredAntigravityModel = settingsStore.get('antigravityModel') || 'gemini-3.8-flash';
+  antigravityProvider.setModel(configuredAntigravityModel);
 
   createWindow();
 

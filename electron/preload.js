@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('catmonto', {
   checkOllama: () => ipcRenderer.invoke('ollama:check'),
   validateGemini: (apiKey) => ipcRenderer.invoke('gemini:validate', apiKey),
   testGeminiPrompt: (options) => ipcRenderer.invoke('gemini:testPrompt', options),
+  validateAntigravity: (apiKey) => ipcRenderer.invoke('antigravity:validate', apiKey),
+  testAntigravityPrompt: (options) => ipcRenderer.invoke('antigravity:testPrompt', options),
   askCat: (prompt) => ipcRenderer.invoke('cat:ask', prompt),
 
   // Settings
@@ -60,5 +62,10 @@ contextBridge.exposeInMainWorld('catmonto', {
     const handler = (event, data) => callback(data);
     ipcRenderer.on('cat:eyeTarget', handler);
     return () => ipcRenderer.removeListener('cat:eyeTarget', handler);
+  },
+  onModelFailover: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('cat:modelFailover', handler);
+    return () => ipcRenderer.removeListener('cat:modelFailover', handler);
   },
 });

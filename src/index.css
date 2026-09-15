@@ -525,10 +525,10 @@ html, body, #root {
 /* Speech Bubble */
 .bubble-card {
   position: relative;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   width: 100%;
-  max-width: 320px;
-  max-height: 290px;
+  max-width: 350px;
+  max-height: 320px;
   display: flex;
   flex-direction: column;
   flex-shrink: 1;
@@ -539,7 +539,7 @@ html, body, #root {
   -webkit-backdrop-filter: blur(20px);
   color: var(--text-main);
   border-radius: 14px;
-  padding: 10px 13px;
+  padding: 10px 12px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.04);
   border: 1px solid var(--border-bubble);
   font-family: var(--font-family);
@@ -551,16 +551,22 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
   margin-bottom: 6px;
   padding-bottom: 5px;
   border-bottom: 1px solid rgba(241, 245, 249, 0.9);
   flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .bubble-meta-left {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .bubble-brand {
@@ -569,6 +575,7 @@ html, body, #root {
   color: var(--primary);
   letter-spacing: 0.3px;
   text-transform: uppercase;
+  flex-shrink: 0;
 }
 
 .bubble-model-badge {
@@ -582,25 +589,33 @@ html, body, #root {
   font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.2px;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
 }
 
 .bubble-badge-pill {
   display: inline-flex;
   align-items: center;
-  padding: 1px 7px;
+  padding: 1px 6px;
   border-radius: 6px;
   background: #eef2ff;
   color: #4338ca;
   border: 1px solid #c7d2fe;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.2px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .bubble-actions {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .bubble-copy-btn {
@@ -615,6 +630,8 @@ html, body, #root {
   font-weight: 600;
   color: #475569;
   cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
   transition: all 0.15s ease;
 }
 
@@ -634,6 +651,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   transition: all 0.15s ease;
 }
 
@@ -648,9 +666,11 @@ html, body, #root {
   gap: 6px;
   overflow-y: auto;
   overflow-x: hidden;
-  max-height: 200px;
-  padding-right: 3px;
+  max-height: 220px;
+  padding-top: 3px;
+  padding-right: 4px;
   overscroll-behavior: contain;
+  box-sizing: border-box;
 }
 
 .bubble-content::-webkit-scrollbar {
@@ -716,6 +736,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 5px;
 }
 
@@ -742,6 +763,8 @@ html, body, #root {
   cursor: pointer;
   box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35);
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .bubble-fix-action-btn:hover {
@@ -1518,6 +1541,7 @@ html, body, #root {
 .provider-tabs {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
   margin-bottom: 14px;
 }
 
@@ -2205,29 +2229,37 @@ html, body, #root {
   gap: 4px;
 }
 
-/* Quick actions: fewer, calmer pills */
+/* Quick actions: compact, properly spaced pills */
 .cat-quick-actions {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  margin-top: 6px;
+  gap: 5px;
+  margin-top: 4px;
+  width: 100%;
+  padding: 0 4px;
+  box-sizing: border-box;
 }
 
 .quick-ask-btn,
-.quick-status-btn {
+.quick-status-btn,
+.toggle-watch-pill,
+.quick-model-pill {
   border: 1px solid #e2e8f0;
   background: #ffffff;
   color: #334155;
-  font-size: 12px;
+  font-size: 10.5px;
   font-weight: 600;
-  padding: 5px 10px;
+  padding: 3px 7.5px;
   border-radius: 999px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .quick-ask-btn:hover,
-.quick-status-btn:hover {
+.quick-status-btn:hover,
+.quick-model-pill:hover {
   border-color: #cbd5e1;
   background: #f8fafc;
 }

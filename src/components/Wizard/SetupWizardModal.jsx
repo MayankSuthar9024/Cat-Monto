@@ -16,8 +16,8 @@ export default function SetupWizardModal({
   onCheckOllama,
 }) {
   const sanitizeGeminiModel = (m) => {
-    if (!m || m.includes('2.0') || m.includes('2.5') || m.includes('1.5') || m.includes('lite-latest')) {
-      return 'gemini-3.5-flash';
+    if (!m || m.includes('2.0') || m.includes('1.5') || m.includes('lite-latest')) {
+      return 'gemini-3.8-flash';
     }
     return m;
   };
@@ -52,6 +52,10 @@ export default function SetupWizardModal({
   const [provider, setProvider] = useState(settings.aiProvider || 'gemini');
   const [geminiApiKey, setGeminiApiKey] = useState(settings.geminiApiKey || '');
   const [geminiModel, setGeminiModel] = useState(sanitizeGeminiModel(settings.geminiModel));
+  const [antigravityModel, setAntigravityModel] = useState(settings.antigravityModel || 'gemini-3.8-flash');
+  const [autoModelFailover, setAutoModelFailover] = useState(
+    settings.autoModelFailover !== undefined ? settings.autoModelFailover : true
+  );
   const [showApiKey, setShowApiKey] = useState(false);
   const [rememberSecurely, setRememberSecurely] = useState(
     settings.rememberSecurely !== undefined ? settings.rememberSecurely : true
@@ -144,8 +148,9 @@ export default function SetupWizardModal({
     setKeyStatus('checking');
     setKeyStatusMessage('');
 
-    if (window.catmonto?.validateGemini) {
-      const res = await window.catmonto.validateGemini(geminiApiKey.trim());
+    const validator = provider === 'antigravity' ? window.catmonto?.validateAntigravity : window.catmonto?.validateGemini;
+    if (validator) {
+      const res = await validator(geminiApiKey.trim());
       if (res?.available) {
         setKeyStatus('valid');
         setKeyStatusMessage('Verified.');
@@ -177,22 +182,26 @@ export default function SetupWizardModal({
     setTestPromptStatus('testing');
     setTestPromptReply('');
 
-    if (window.catmonto?.testGeminiPrompt) {
-      const res = await window.catmonto.testGeminiPrompt({
+    const isAntigravity = provider === 'antigravity';
+    const tester = isAntigravity ? window.catmonto?.testAntigravityPrompt : window.catmonto?.testGeminiPrompt;
+    const selectedModel = isAntigravity ? antigravityModel : geminiModel;
+
+    if (tester) {
+      const res = await tester({
         apiKey: geminiApiKey.trim(),
-        model: geminiModel,
+        model: selectedModel,
       });
       if (res.success) {
         setTestPromptStatus('success');
         setTestPromptReply(res.text);
       } else {
         setTestPromptStatus('error');
-        setTestPromptReply(res.error || 'Failed to call Gemini model.');
+        setTestPromptReply(res.error || `Failed to call ${isAntigravity ? 'Antigravity' : 'Gemini'} model.`);
       }
     } else {
       setTimeout(() => {
         setTestPromptStatus('success');
-        setTestPromptReply("Meow! Hi there, I'm Catmonto. Your Gemini connection is working perfectly!");
+        setTestPromptReply(isAntigravity ? "Antigravity Agent connected and ready with Gemini 3.8!" : "Meow! Hi there, I'm Catmonto. Your Gemini connection is working perfectly!");
       }, 1000);
     }
   };
@@ -213,7 +222,9 @@ export default function SetupWizardModal({
         setTestSnapshot(res.dataUrl);
       }
     } else {
-      setTestSnapshot('https://images.unsplash.com/photo-1542838132-92c53300491e?w=500&auto=format&fit=crop&q=60');
+      setTimeout(() => {
+        setTestSnapshot('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==');
+      }, 700);
     }
     setCapturingTest(false);
   };
@@ -228,6 +239,8 @@ export default function SetupWizardModal({
       aiProvider: provider,
       geminiApiKey: geminiApiKey.trim(),
       geminiModel,
+      antigravityModel,
+      autoModelFailover,
       rememberSecurely,
       privacyShield,
       excludedApps: parsedExclusions,
@@ -477,11 +490,27 @@ export default function SetupWizardModal({
               </button>
 
               <h2 className="step-heading">
-                Connect {provider === 'gemini' ? 'Gemini' : 'AI'}
+                Connect {provider === 'antigravity' ? 'Antigravity Agent' : (provider === 'gemini' ? 'Gemini' : 'AI')}
               </h2>
 
               {/* Provider Tabs */}
               <div className="provider-tabs">
+                <button
+                  type="button"
+                  onClick={() => setProvider('antigravity')}
+                  className={`provider-tab ${provider === 'antigravity' ? 'active' : ''}`}
+                  style={{
+                    background: provider === 'antigravity' ? 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' : undefined,
+                    color: provider === 'antigravity' ? '#ffffff' : undefined,
+                    fontWeight: 600,
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="m4.93 4.93 4.24 4.24M14.83 9.17l4.24-4.24M14.83 14.83l4.24 4.24M9.17 14.83l-4.24 4.24" />
+                  </svg>
+                  Antigravity
+                </button>
                 <button
                   type="button"
                   onClick={() => setProvider('gemini')}
@@ -506,22 +535,40 @@ export default function SetupWizardModal({
                 </button>
               </div>
 
-              {provider === 'gemini' ? (
+              {provider === 'antigravity' || provider === 'gemini' ? (
                 <div className="wizard-card key-card">
-                  <div className="key-card-header">
-                    <label className="card-label">Gemini API key</label>
-                    <select
-                      value={geminiModel}
-                      onChange={(e) => setGeminiModel(e.target.value)}
-                      className="model-select"
-                    >
-                      <option value="gemini-3.5-flash">Gemini 3.5 Flash — recommended</option>
-                      <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
-                    </select>
+                  <div className="key-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <label className="card-label" style={{ margin: 0 }}>
+                      {provider === 'antigravity' ? 'Antigravity Agent (Google API Key)' : 'Gemini API key'}
+                    </label>
+                    {provider === 'antigravity' ? (
+                      <select
+                        value={antigravityModel}
+                        onChange={(e) => setAntigravityModel(e.target.value)}
+                        className="model-select"
+                        style={{ maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      >
+                        <option value="gemini-3.8-flash">Gemini 3.8 Flash (High Reasoning) — Recommended</option>
+                        <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                      </select>
+                    ) : (
+                      <select
+                        value={geminiModel}
+                        onChange={(e) => setGeminiModel(e.target.value)}
+                        className="model-select"
+                        style={{ maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      >
+                        <option value="gemini-3.8-flash">Gemini 3.8 Flash — recommended</option>
+                        <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                        <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
+                      </select>
+                    )}
                   </div>
 
-                  <div className="key-input-row">
-                    <div className="key-input-wrap">
+                  <div className="key-input-row" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', boxSizing: 'border-box' }}>
+                    <div className="key-input-wrap" style={{ flex: 1, minWidth: 0, position: 'relative' }}>
                       <span className="key-icon">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <circle cx="7.5" cy="15.5" r="5.5" />
@@ -557,6 +604,7 @@ export default function SetupWizardModal({
                       onClick={handleVerifyGeminiKey}
                       disabled={keyStatus === 'checking'}
                       className={`key-verify-btn ${keyStatus}`}
+                      style={{ flexShrink: 0 }}
                     >
                       {keyStatus === 'checking' ? 'Checking...' : keyStatus === 'valid' ? 'Verified ✓' : 'Verify'}
                     </button>
@@ -564,7 +612,7 @@ export default function SetupWizardModal({
 
                   <p className="key-disclaimer" style={{ display: 'none' }} />
 
-                  <div className="key-options-row">
+                  <div className="key-options-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
                     <label className="checkbox-label">
                       <input
                         type="checkbox"
@@ -572,7 +620,20 @@ export default function SetupWizardModal({
                         onChange={(e) => setRememberSecurely(e.target.checked)}
                       />
                       <div>
-                        <span className="checkbox-title">Remember</span>
+                        <span className="checkbox-title">Remember Key</span>
+                      </div>
+                    </label>
+
+                    <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="checkbox"
+                        checked={autoModelFailover}
+                        onChange={(e) => setAutoModelFailover(e.target.checked)}
+                      />
+                      <div>
+                        <span className="checkbox-title" style={{ color: '#4f46e5', fontWeight: 600 }}>
+                          ⚡ Auto-Failover (Quota Protection)
+                        </span>
                       </div>
                     </label>
 
@@ -851,7 +912,9 @@ export default function SetupWizardModal({
                 <div className="summary-row">
                   <span className="summary-label">Provider:</span>
                   <span className="summary-val highlight">
-                    {provider === 'gemini' ? geminiModel : ollamaModel}
+                    {provider === 'antigravity'
+                      ? `Antigravity (${antigravityModel})`
+                      : (provider === 'gemini' ? `Gemini (${geminiModel})` : ollamaModel)}
                   </span>
                 </div>
                 <div className="summary-row">

@@ -8,7 +8,8 @@ export default function App() {
   const [catState, setCatState] = useState('sleeping'); // 'sleeping' (no errors) | 'attention' | 'speaking' | 'thinking' | 'idle'
   const [fsmState, setFsmState] = useState('WATCHING');
   const [suggestion, setSuggestion] = useState(null);
-  const [activeModel, setActiveModel] = useState('gemini-3.5-flash');
+  const [activeModel, setActiveModel] = useState('gemini-3.8-flash');
+  const [failoverNotice, setFailoverNotice] = useState(null);
   const [bubbleHeight, setBubbleHeight] = useState(190);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [showAskInput, setShowAskInput] = useState(false);
@@ -25,7 +26,9 @@ export default function App() {
         .then((s) => {
           setSettings(s || {});
           setIsMonitoring(Boolean(s?.monitoringEnabled));
-          if (s?.geminiModel) {
+          if (s?.aiProvider === 'antigravity') {
+            setActiveModel(s?.antigravityModel || 'gemini-3.8-flash');
+          } else if (s?.geminiModel) {
             setActiveModel(s.geminiModel);
           }
         })
@@ -55,6 +58,16 @@ export default function App() {
         }
       });
 
+      // Listen for model failover events
+      const unsubscribeFailover = window.catmonto.onModelFailover?.((data) => {
+        if (data?.activeModel) {
+          setActiveModel(data.activeModel);
+          const shortName = data.activeModel.replace('gemini-', '').replace('-flash', '').replace('-lite', ' Lite');
+          setFailoverNotice(`Switched: ${shortName}`);
+          setTimeout(() => setFailoverNotice(null), 4000);
+        }
+      });
+
       // Listen for cat animation state changes
       const unsubscribeState = window.catmonto.onStateChange((state) => {
         setCatState(state || 'sleeping');
@@ -67,6 +80,7 @@ export default function App() {
 
       return () => {
         unsubscribeSuggestion();
+        unsubscribeFailover?.();
         unsubscribeState();
         unsubscribeFsm?.();
       };
@@ -81,13 +95,13 @@ export default function App() {
       window.catmonto.setWindowSize(780, 560, false);
     } else if (suggestion) {
       // Dynamic height: measured bubble height + cat wrapper (~145px) + drag bar/margins (~35px)
-      // Clamped between 330px and 480px to fit any error without clipping
-      const targetHeight = Math.min(480, Math.max(330, (bubbleHeight || 190) + 180));
-      window.catmonto.setWindowSize(330, targetHeight, false);
+      // Clamped between 340px and 500px to fit any error without clipping
+      const targetHeight = Math.min(500, Math.max(340, (bubbleHeight || 190) + 185));
+      window.catmonto.setWindowSize(360, targetHeight, false);
     } else if (showAskInput) {
-      window.catmonto.setWindowSize(280, 220, false);
+      window.catmonto.setWindowSize(290, 230, false);
     } else {
-      window.catmonto.setWindowSize(190, 175, false);
+      window.catmonto.setWindowSize(240, 185, false);
     }
   }, [isWizardOpen, suggestion, bubbleHeight, showAskInput]);
 
@@ -152,6 +166,11 @@ export default function App() {
 
   const handleSaveSettings = async (newSettings) => {
     setSettings((prev) => ({ ...prev, ...newSettings }));
+    if (newSettings.aiProvider === 'antigravity') {
+      setActiveModel(newSettings.antigravityModel || 'gemini-3.8-flash');
+    } else if (newSettings.geminiModel) {
+      setActiveModel(newSettings.geminiModel);
+    }
     if (window.catmonto) {
       await window.catmonto.updateSettings(newSettings);
       if (newSettings.monitoringEnabled !== undefined) {
@@ -177,6 +196,34 @@ export default function App() {
 
   return (
     <div className={`app-container ${isWizardOpen ? 'wizard-active' : ''}`}>
+      {/* Dynamic Model Failover Toast */}
+      {failoverNotice && !isWizardOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 4,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            maxWidth: '85%',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            zIndex: 99999,
+            background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+            color: '#ffffff',
+            padding: '3px 8px',
+            borderRadius: '12px',
+            fontSize: '9.5px',
+            fontWeight: 600,
+            letterSpacing: '0.02em',
+            boxShadow: '0 2px 8px rgba(79, 70, 229, 0.35)',
+            pointerEvents: 'none',
+          }}
+        >
+          ⚡ {failoverNotice}
+        </div>
+      )}
+
       {/* Draggable handle bar at top (compact cat mode) */}
       {!isWizardOpen && (
         <div className="drag-handle-bar drag-region" title="Drag to move Catmonto">
@@ -245,7 +292,7 @@ export default function App() {
                 e.stopPropagation();
                 setShowAskInput((prev) => !prev);
               }}
-              className="quick-action-pill ask-pill"
+              className="quick-action-pill ask-pill quick-ask-btn"
               title="Ask Cat about your screen"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -277,6 +324,23 @@ export default function App() {
                   <span>Paused</span>
                 </>
               )}
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openWizard();
+              }}
+              className="quick-action-pill quick-model-pill"
+              style={{
+                background: settings.aiProvider === 'antigravity' ? 'rgba(79, 70, 229, 0.12)' : 'rgba(0, 0, 0, 0.04)',
+                color: settings.aiProvider === 'antigravity' ? '#4f46e5' : '#475569',
+                borderColor: settings.aiProvider === 'antigravity' ? '#c7d2fe' : '#e2e8f0',
+              }}
+              title={`Active Model: ${activeModel}. Click to open Settings.`}
+            >
+              <span>{settings.aiProvider === 'antigravity' ? '⚡ AGY' : (activeModel?.includes('3.8') ? '⚡ 3.8' : (settings.aiProvider === 'ollama' ? 'Ollama' : 'Gemini'))}</span>
             </button>
           </div>
         </div>

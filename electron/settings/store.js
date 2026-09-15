@@ -4,16 +4,18 @@ const { app, safeStorage } = require('electron');
 
 const DEFAULT_SETTINGS = {
   monitoringEnabled: true,
-  aiProvider: 'gemini', // 'gemini' | 'ollama'
+  aiProvider: 'gemini', // 'antigravity' | 'gemini' | 'ollama'
+  antigravityModel: 'gemini-3.8-flash',
+  autoModelFailover: true,
   geminiApiKey: '',
   geminiApiKeyEncrypted: '',
-  geminiModel: 'gemini-3.5-flash',
+  geminiModel: 'gemini-3.8-flash',
   ollamaUrl: 'http://127.0.0.1:11434',
   model: 'qwen2.5-vl:latest',
   checkIntervalSeconds: 3,
   typingPauseDelaySeconds: 0.6,
   suggestionCooldownSeconds: 4,
-  windowBounds: { x: null, y: null, width: 190, height: 175 },
+  windowBounds: { x: null, y: null, width: 240, height: 185 },
   targetSourceId: 'entire-screen',
   targetSourceName: 'Entire Screen',
   rememberSecurely: true,
@@ -91,15 +93,36 @@ class SettingsStore {
           }
         }
 
-        // Migrate deprecated models (2.0, 2.5, 1.5) to Gemini 3.5 Flash
+        // Ensure autoModelFailover default
+        if (merged.autoModelFailover === undefined) {
+          merged.autoModelFailover = true;
+        }
+        if (!merged.antigravityModel) {
+          merged.antigravityModel = 'gemini-3.8-flash';
+        }
+
+        // Migrate deprecated models (2.0, 1.5) to Gemini 3.8 / 3.5 Flash
         if (
           !merged.geminiModel ||
           merged.geminiModel.includes('2.0') ||
-          merged.geminiModel.includes('2.5') ||
           merged.geminiModel.includes('1.5') ||
           merged.geminiModel.includes('lite-latest')
         ) {
-          merged.geminiModel = 'gemini-3.5-flash';
+          merged.geminiModel = 'gemini-3.8-flash';
+        }
+
+        // Ensure minimum compact bounds so buttons never clip on narrow screens or high-DPI
+        if (
+          !merged.windowBounds ||
+          !merged.windowBounds.width ||
+          merged.windowBounds.width < 235 ||
+          merged.windowBounds.width > 260
+        ) {
+          merged.windowBounds = {
+            ...(merged.windowBounds || {}),
+            width: 240,
+            height: 185,
+          };
         }
 
         return merged;

@@ -137,7 +137,7 @@ export default function SetupWizardModal({
   const handleVerifyGeminiKey = async () => {
     if (!geminiApiKey || !geminiApiKey.trim()) {
       setKeyStatus('invalid');
-      setKeyStatusMessage('Please enter a valid Gemini API key.');
+      setKeyStatusMessage('Enter an API key.');
       return;
     }
 
@@ -148,19 +148,19 @@ export default function SetupWizardModal({
       const res = await window.catmonto.validateGemini(geminiApiKey.trim());
       if (res?.available) {
         setKeyStatus('valid');
-        setKeyStatusMessage('Key verified successfully with Google Gemini!');
+        setKeyStatusMessage('Verified.');
       } else {
         setKeyStatus('invalid');
-        setKeyStatusMessage(res?.error || 'Invalid API key or network error.');
+        setKeyStatusMessage(res?.error || 'Invalid key.');
       }
     } else {
       setTimeout(() => {
         if (geminiApiKey.length > 10) {
           setKeyStatus('valid');
-          setKeyStatusMessage('Key verified successfully! (Preview mode)');
+          setKeyStatusMessage('Verified.');
         } else {
           setKeyStatus('invalid');
-          setKeyStatusMessage('API key is too short.');
+          setKeyStatusMessage('Key too short.');
         }
       }, 800);
     }
@@ -170,7 +170,7 @@ export default function SetupWizardModal({
   const handleTestLivePrompt = async () => {
     if (!geminiApiKey || !geminiApiKey.trim()) {
       setTestPromptStatus('error');
-      setTestPromptReply('Please enter your Gemini API key above first.');
+      setTestPromptReply('Enter your API key first.');
       return;
     }
 
@@ -275,7 +275,7 @@ export default function SetupWizardModal({
           <div className="wizard-title-left">
             <span className="wizard-title-badge">🐾 Catmonto</span>
             <span className="wizard-title-separator">•</span>
-            <span className="wizard-title-sub">Setup & Settings</span>
+            <span className="wizard-title-sub">Settings</span>
           </div>
           <div className="wizard-title-controls no-drag">
             <button
@@ -377,7 +377,7 @@ export default function SetupWizardModal({
               </svg>
             </div>
 
-            <p className="wizard-quote">"I only look when you ask me to."</p>
+            <p className="wizard-quote">"I only look when you ask."</p>
 
             {/* Stepper Navigation */}
             <nav className="wizard-stepper">
@@ -413,10 +413,7 @@ export default function SetupWizardModal({
           {/* STEP 1: PRIVACY */}
           {currentStep === 1 && (
             <div className="step-panel animate-fade">
-              <h2 className="step-heading">Privacy & Data Security</h2>
-              <p className="step-subheading">
-                Catmonto is designed from the ground up to respect your personal workspace.
-              </p>
+              <h2 className="step-heading">Privacy</h2>
 
               <div className="privacy-feature-list">
                 <div className="privacy-feature-item">
@@ -426,10 +423,7 @@ export default function SetupWizardModal({
                     </svg>
                   </div>
                   <div>
-                    <h4 className="feature-title">Smart Privacy Shield</h4>
-                    <p className="feature-desc">
-                      Automatically pauses observation whenever sensitive windows (banking, password managers, private tabs) are active.
-                    </p>
+                    <h4 className="feature-title">Privacy Shield</h4>
                   </div>
                 </div>
 
@@ -441,42 +435,33 @@ export default function SetupWizardModal({
                     </svg>
                   </div>
                   <div>
-                    <h4 className="feature-title">Zero Permanent Image Storage</h4>
-                    <p className="feature-desc">
-                      Frames exist only in temporary memory while analyzing. Nothing is saved to disk or cataloged.
-                    </p>
+                    <h4 className="feature-title">No image storage</h4>
                   </div>
                 </div>
 
                 <div className="privacy-feature-item">
                   <div className="feature-icon bell">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                       <circle cx="12" cy="12" r="3" />
                     </svg>
                   </div>
                   <div>
-                    <h4 className="feature-title">On-Demand Observation</h4>
-                    <p className="feature-desc">
-                      Catmonto only inspects the display when you turn monitoring on or click to ask a direct question.
-                    </p>
+                    <h4 className="feature-title">On-demand only</h4>
                   </div>
                 </div>
               </div>
 
               {/* Exclusion keywords input */}
               <div className="wizard-card" style={{ marginTop: 14 }}>
-                <label className="card-label">Excluded Apps & Window Titles (Keywords)</label>
+                <label className="card-label">Excluded apps</label>
                 <input
                   type="text"
                   value={excludedApps}
                   onChange={(e) => setExcludedApps(e.target.value)}
-                  placeholder="banking, bitwarden, 1password, private, incognito"
+                  placeholder="banking, bitwarden, private"
                   className="wizard-input"
                 />
-                <span className="card-hint">
-                  Windows matching any of these keywords will never be captured or sent to the AI.
-                </span>
               </div>
             </div>
           )}
@@ -492,11 +477,8 @@ export default function SetupWizardModal({
               </button>
 
               <h2 className="step-heading">
-                Connect your {provider === 'gemini' ? 'Gemini' : 'AI'} account
+                Connect {provider === 'gemini' ? 'Gemini' : 'AI'}
               </h2>
-              <p className="step-subheading">
-                AI Companion is bring-your-own-key. API usage is billed directly to your Google AI Studio account.
-              </p>
 
               {/* Provider Tabs */}
               <div className="provider-tabs">
@@ -508,7 +490,7 @@ export default function SetupWizardModal({
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 2L14.4 9.6L22 12L14.4 14.4L12 22L9.6 14.4L2 12L9.6 9.6L12 2Z" />
                   </svg>
-                  Google Gemini (Recommended)
+                  Gemini
                 </button>
                 <button
                   type="button"
@@ -520,7 +502,7 @@ export default function SetupWizardModal({
                     <circle cx="8.5" cy="8.5" r="1.5" />
                     <path d="M21 15l-5-5L5 21" />
                   </svg>
-                  Local Ollama
+                  Ollama
                 </button>
               </div>
 
@@ -533,8 +515,8 @@ export default function SetupWizardModal({
                       onChange={(e) => setGeminiModel(e.target.value)}
                       className="model-select"
                     >
-                      <option value="gemini-3.5-flash">Gemini 3.5 Flash (fastest & high-precision — recommended)</option>
-                      <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite (fast lightweight)</option>
+                      <option value="gemini-3.5-flash">Gemini 3.5 Flash — recommended</option>
+                      <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
                     </select>
                   </div>
 
@@ -580,9 +562,7 @@ export default function SetupWizardModal({
                     </button>
                   </div>
 
-                  <p className="key-disclaimer">
-                    Sent directly to Gemini from this app's protected main process. It is never exposed back to this screen.
-                  </p>
+                  <p className="key-disclaimer" style={{ display: 'none' }} />
 
                   <div className="key-options-row">
                     <label className="checkbox-label">
@@ -592,8 +572,7 @@ export default function SetupWizardModal({
                         onChange={(e) => setRememberSecurely(e.target.checked)}
                       />
                       <div>
-                        <span className="checkbox-title">Remember securely</span>
-                        <span className="checkbox-desc">Encrypt with macOS Keychain or Windows DPAPI</span>
+                        <span className="checkbox-title">Remember</span>
                       </div>
                     </label>
 
@@ -603,7 +582,7 @@ export default function SetupWizardModal({
                         onClick={handleRemoveKey}
                         className="remove-key-btn"
                       >
-                        Remove stored key
+                        Remove
                       </button>
                     )}
                   </div>
@@ -616,10 +595,7 @@ export default function SetupWizardModal({
 
                   {/* LIVE MODEL TEST BUTTON & RESPONSE */}
                   <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed #e2e8f0' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>
-                        Make Sure API Model Is Working:
-                      </span>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
                       <button
                         type="button"
                         onClick={handleTestLivePrompt}
@@ -639,13 +615,13 @@ export default function SetupWizardModal({
                         }}
                       >
                         {testPromptStatus === 'testing' ? (
-                          <span>Calling Gemini Model...</span>
+                          <span>Testing...</span>
                         ) : (
                           <>
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
                             </svg>
-                            <span>Test Live AI Response</span>
+                            <span>Test</span>
                           </>
                         )}
                       </button>
@@ -661,12 +637,6 @@ export default function SetupWizardModal({
                           padding: '10px 12px',
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 11, color: '#059669', marginBottom: 3 }}>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                          <span>Model is Live & Working Perfectly!</span>
-                        </div>
                         <p style={{ margin: 0, fontSize: 12, color: '#065f46', fontStyle: 'italic' }}>
                           "{testPromptReply}"
                         </p>
@@ -683,9 +653,6 @@ export default function SetupWizardModal({
                           padding: '10px 12px',
                         }}
                       >
-                        <div style={{ fontWeight: 700, fontSize: 11, color: '#dc2626', marginBottom: 2 }}>
-                          API Error:
-                        </div>
                         <p style={{ margin: 0, fontSize: 11, color: '#b91c1c' }}>
                           {testPromptReply}
                         </p>
@@ -731,30 +698,23 @@ export default function SetupWizardModal({
                   <div style={{ marginTop: 8, fontSize: 12 }}>
                     {ollamaStatus?.available ? (
                       <span style={{ color: '#059669', fontWeight: 600 }}>
-                        ✓ Connected ({ollamaStatus.models?.length || 0} models found)
+                        ✓ Connected
                       </span>
                     ) : (
                       <span style={{ color: '#d97706' }}>
-                        Ollama not responding. Run: <code>ollama run qwen2.5-vl</code>
+                        Not connected
                       </span>
                     )}
                   </div>
                 </div>
               )}
-
-              <p className="wizard-policy-note">
-                Responses use <code>store: false</code>. This avoids application-state storage and retention under data policies.
-              </p>
             </div>
           )}
 
           {/* STEP 3: PERMISSION */}
           {currentStep === 3 && (
             <div className="step-panel animate-fade">
-              <h2 className="step-heading">System Permissions</h2>
-              <p className="step-subheading">
-                Catmonto uses native Windows desktop capturing to inspect your active screen.
-              </p>
+              <h2 className="step-heading">Permissions</h2>
 
               <div className="wizard-card permission-card">
                 <div className="perm-row">
@@ -767,21 +727,18 @@ export default function SetupWizardModal({
                       </svg>
                     </div>
                     <div>
-                      <h4 className="perm-title">Screen Capture Permission</h4>
-                      <p className="perm-desc">
-                        Allows Catmonto to observe active code, terminal output, or browser context on your screen.
-                      </p>
+                      <h4 className="perm-title">Screen Capture</h4>
                     </div>
                   </div>
                   <span className="status-pill-granted">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
-                    Access Active
+                    Active
                   </span>
                 </div>
 
                 <div className="source-picker-box" style={{ marginTop: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 12px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <label className="card-label" style={{ margin: 0 }}>Choose screen / window to watch</label>
+                    <label className="card-label" style={{ margin: 0 }}>Watch</label>
                     <button
                       type="button"
                       onClick={handleRefreshSources}
@@ -798,39 +755,35 @@ export default function SetupWizardModal({
                     className="wizard-input"
                     style={{ width: '100%', fontSize: 12 }}
                   >
-                    <option value="entire-screen">🖥️ Entire Screen (all windows)</option>
+                    <option value="entire-screen">Entire Screen</option>
                     {screenSources.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.type === 'screen' ? '🖥️ ' : '🪟 '}{s.name}
+                        {s.name}
                       </option>
                     ))}
                   </select>
-                  <span className="card-hint">
-                    Watching: <strong>{targetSourceName}</strong> — Catmonto only analyzes this source.
-                  </span>
                   {screenSources.length === 0 && !loadingSources && (
                     <span className="card-hint" style={{ color: '#d97706' }}>
-                      No windows found. Open your code editor/browser, then click Refresh.
+                      No windows. Open editor, then Refresh.
                     </span>
                   )}
                 </div>
 
                 <div className="test-capture-box">
                   <div className="test-capture-header">
-                    <span>Test Live Screen Snapshot</span>
+                    <span>Test</span>
                     <button
                       type="button"
                       onClick={handleTestCapture}
                       disabled={capturingTest}
                       className="test-capture-btn"
                     >
-                      {capturingTest ? 'Capturing...' : 'Capture Test Frame'}
+                      {capturingTest ? 'Capturing...' : 'Capture'}
                     </button>
                   </div>
                   {testSnapshot && (
                     <div className="snapshot-preview-wrap">
                       <img src={testSnapshot} alt="Screen Preview" className="snapshot-preview-img" />
-                      <span className="snapshot-tag">Live Frame Captured</span>
                     </div>
                   )}
                 </div>
@@ -845,18 +798,15 @@ export default function SetupWizardModal({
                   </svg>
                   <div>
                     <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
-                      Observation Pacing & Delay (टाइपिंग डिले)
+                      Pacing
                     </h4>
-                    <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
-                      Controls when Catmonto inspects your screen so it never interrupts you while you are actively writing code.
-                    </p>
                   </div>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 8 }}>
                   <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
                     <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#334155', marginBottom: 4 }}>
-                      Typing Pause Delay
+                      Pause delay
                     </label>
                     <select
                       value={typingPauseDelaySeconds}
@@ -864,19 +814,16 @@ export default function SetupWizardModal({
                       className="wizard-input"
                       style={{ fontSize: 12, padding: '6px 8px', width: '100%' }}
                     >
-                      <option value={2}>2s (Fast)</option>
-                      <option value={4}>4s (Balanced - Recommended)</option>
-                      <option value={6}>6s (Relaxed - Deep coding)</option>
-                      <option value={8}>8s (Patient - Long thoughts)</option>
+                      <option value={2}>2s</option>
+                      <option value={4}>4s</option>
+                      <option value={6}>6s</option>
+                      <option value={8}>8s</option>
                     </select>
-                    <span style={{ display: 'block', fontSize: 10, color: '#64748b', marginTop: 4 }}>
-                      Waits this long after typing stops before analyzing.
-                    </span>
                   </div>
 
                   <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
                     <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#334155', marginBottom: 4 }}>
-                      Suggestion Cooldown
+                      Cooldown
                     </label>
                     <select
                       value={suggestionCooldownSeconds}
@@ -884,14 +831,11 @@ export default function SetupWizardModal({
                       className="wizard-input"
                       style={{ fontSize: 12, padding: '6px 8px', width: '100%' }}
                     >
-                      <option value={10}>10s (Frequent)</option>
-                      <option value={15}>15s (Standard - Recommended)</option>
-                      <option value={30}>30s (Quiet mode)</option>
-                      <option value={60}>60s (Minimal interruptions)</option>
+                      <option value={10}>10s</option>
+                      <option value={15}>15s</option>
+                      <option value={30}>30s</option>
+                      <option value={60}>60s</option>
                     </select>
-                    <span style={{ display: 'block', fontSize: 10, color: '#64748b', marginTop: 4 }}>
-                      Minimum interval between consecutive suggestions.
-                    </span>
                   </div>
                 </div>
               </div>
@@ -901,49 +845,27 @@ export default function SetupWizardModal({
           {/* STEP 4: READY */}
           {currentStep === 4 && (
             <div className="step-panel animate-fade">
-              <h2 className="step-heading">You're all set!</h2>
-              <p className="step-subheading">
-                Catmonto is configured and ready to be your unobtrusive desktop AI companion.
-              </p>
+              <h2 className="step-heading">Ready</h2>
 
               <div className="wizard-card summary-card">
                 <div className="summary-row">
-                  <span className="summary-label">Active Provider:</span>
+                  <span className="summary-label">Provider:</span>
                   <span className="summary-val highlight">
-                    {provider === 'gemini' ? `Google Gemini (${geminiModel})` : `Local Ollama (${ollamaModel})`}
+                    {provider === 'gemini' ? geminiModel : ollamaModel}
                   </span>
                 </div>
                 <div className="summary-row">
-                  <span className="summary-label">Target View:</span>
-                  <span className="summary-val">Entire Screen (Active Workspace)</span>
+                  <span className="summary-label">Watch:</span>
+                  <span className="summary-val">{targetSourceName}</span>
                 </div>
                 <div className="summary-row">
-                  <span className="summary-label">Privacy Shield:</span>
-                  <span className="summary-val text-green">✓ Enabled (Sensitive windows masked)</span>
-                </div>
-                <div className="summary-row">
-                  <span className="summary-label">Key Storage:</span>
-                  <span className="summary-val">
-                    {rememberSecurely ? '🔒 Encrypted with Windows DPAPI' : 'Session only'}
-                  </span>
-                </div>
-                <div className="summary-row">
-                  <span className="summary-label">Typing Delay:</span>
-                  <span className="summary-val highlight">{typingPauseDelaySeconds}s pause before checking</span>
-                </div>
-                <div className="summary-row">
-                  <span className="summary-label">Cooldown:</span>
-                  <span className="summary-val">{suggestionCooldownSeconds}s between suggestions</span>
+                  <span className="summary-label">Privacy:</span>
+                  <span className="summary-val text-green">✓ On</span>
                 </div>
               </div>
 
               <div className="ready-tips-box">
-                <div className="tip-header">💡 How to use Catmonto:</div>
-                <ul className="tip-list">
-                  <li><strong>Click on Cat:</strong> Opens this setup menu anytime.</li>
-                  <li><strong>Right-click on Cat:</strong> Ask a direct question about your screen!</li>
-                  <li><strong>Passive Observation:</strong> Catmonto watches your screen and stays quiet unless an error or helpful suggestion appears!</li>
-                </ul>
+                <div className="tip-header">Click for Settings • Right-click to Ask</div>
               </div>
             </div>
           )}
@@ -974,14 +896,14 @@ export default function SetupWizardModal({
                   onClick={() => handleSaveAndExit(false)}
                   className="wizard-btn-back"
                 >
-                  Save & Idle
+                  Save
                 </button>
                 <button
                   type="button"
                   onClick={() => handleSaveAndExit(true)}
                   className="wizard-btn-next"
                 >
-                  Start Companion 🐾
+                  Start
                 </button>
               </div>
             )}
